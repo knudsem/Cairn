@@ -315,7 +315,7 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
 { "error": "stock_insuffisant", "message": "Stock insuffisant : 3 disponibles, 4 demandés." }
 ```
 
-La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l'avancement (« 2/5 »).
+La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l'avancement (« 2/5 »). Les dates sont en UTC, au format RFC 3339 (`2026-11-04T07:30:00Z`), quel que soit le fuseau du serveur.
 
 ### 4.3 Codes d'erreur
 
@@ -335,6 +335,8 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 - **Noms JSON en camelCase** (`stockQty`) : les méthodes JSON de `HttpClient` les associent automatiquement aux propriétés C# `StockQty`.
 - **Listes vides** : en Go, une slice non initialisée est encodée `null` et non `[]`. Toutes les listes renvoyées sont initialisées (`[]Line{}`), sinon le client C# reçoit une liste `null`.
 - **Méthode HTTP incorrecte** : le routeur de `net/http` répond 405 automatiquement.
+- **Erreurs du routeur en texte brut** : une route inconnue (404) ou une méthode non prévue (405) reçoit une réponse `text/plain`, hors du format JSON unique. Le client ne lit donc le JSON d'une erreur que si la réponse est de type `application/json` ; sinon il affiche un message générique. La même règle couvre la page d'attente de Render (étape 11).
+- **Paramètres validés** : une chaîne de requête mal formée (`?status=%zz`) ou un paramètre répété donne 400, au lieu d'être ignoré.
 
 ---
 
@@ -448,18 +450,22 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
   - `?status=inconnu` renvoie 400 ;
   - `/api/orders/1` renvoie les lignes triées par emplacement ;
   - `/api/orders/999` renvoie 404 ;
-  - `/api/orders/abc` renvoie 400.
+  - `/api/orders/abc` renvoie 400 ;
+  - `?status=%zz` et `?status=prete&status=inconnu` renvoient 400.
 - **Documentation :** [encoding/json](https://pkg.go.dev/encoding/json), [pgx](https://pkg.go.dev/github.com/jackc/pgx/v5), [débuter avec pgx](https://github.com/jackc/pgx/wiki/Getting-started-with-pgx), [erreurs en Go](https://go.dev/blog/go1.13-errors)
 
 ### Étape 5 : règle métier `PickLine` (1 h 30)
 
-- **Contenu :** la transaction de la section 3.3.
+- **Contenu :**
+  - la transaction de la section 3.3 ;
+  - en cas de stock insuffisant, lecture du stock disponible dans la même transaction, pour le message de la section 4.2 (« 3 disponibles, 4 demandés ») : une erreur de type `InsufficientStockError{Available, Requested}`, reconnue par `errors.Is(err, ErrInsufficientStock)` grâce à sa méthode `Is`, et dont le handler lit les quantités avec `errors.As`.
 - **Notions Go :**
   - `pool.Begin` ;
   - `defer tx.Rollback(ctx)`, sans effet après un `Commit` ;
   - `RETURNING` avec `QueryRow` ;
   - `RowsAffected()` ;
   - erreurs déclarées une fois (`var ErrInsufficientStock = errors.New(...)`) ;
+  - type d'erreur avec des champs, `errors.As` ;
   - emballage d'erreur avec `%w`.
 - **Vérification :** par les tests de l'étape 6.
 - **Documentation :** [transactions en Go](https://go.dev/doc/database/execute-transactions), [isolation PostgreSQL](https://www.postgresql.org/docs/18/transaction-iso.html) (§13.2.1), [verrous](https://www.postgresql.org/docs/18/explicit-locking.html), [clause FOR UPDATE](https://www.postgresql.org/docs/18/sql-select.html)
@@ -515,7 +521,9 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
   - une carte par commande : référence, client, statut (couleur et libellé, jamais la couleur seule), avancement ;
   - sélection du préparateur par de grands boutons ;
   - dans `CairnApiClient`, des chemins relatifs sans barre oblique initiale (`api/orders`), pour fonctionner avec n'importe quelle adresse de base (Compose ou Render) ;
-  - une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas.
+  - une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas ;
+  - dans `CairnApiClient`, le JSON d'une erreur n'est lu que si la réponse est de type `application/json`, et une `JsonException` donne un état « réponse inattendue » plutôt qu'une exception qui couperait le circuit Blazor (section 4.4) ;
+  - dans `Models.cs`, les dates en `DateTimeOffset` (jamais `DateTime`), converties pour l'affichage vers le fuseau `Europe/Paris` : le conteneur web tourne en UTC ; les statuts restent des chaînes (`a_preparer`), qu'un convertisseur d'énumération par défaut ne saurait pas lire.
 - **Notions C# et Blazor :**
   - `@foreach` ;
   - composants et `[Parameter]` ;
@@ -580,7 +588,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 - `db/reset.sql` : supprime les trois tables, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées.
 - `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle ; si l'API répond par la page d'attente de Render plutôt que par son JSON, message « démarrage en cours » plutôt que « base indisponible ».
 
-**Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS, et pgx gère `channel_binding` depuis la version 5.9.
+**Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS. pgx doit être en version 5.12.0 au moins (c'est le cas) : il gère `channel_binding` depuis la 5.9, et la 5.12.0 corrige un contournement de `channel_binding=require`.
 
 **Remise à zéro des données de démonstration**, sans installer psql (celui de l'image `postgres:18` suffit) :
 

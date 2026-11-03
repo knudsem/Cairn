@@ -1,6 +1,6 @@
 module github.com/knudsem/cairn/api
 
-go 1.27.3
+go 1.27.0
 
 require github.com/jackc/pgx/v5 v5.12.0
 
