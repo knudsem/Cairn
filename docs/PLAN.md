@@ -22,7 +22,7 @@ Versions de référence : Go 1.27, .NET 10 (LTS), PostgreSQL 18. Version en lign
 |---|---|
 | Valider un squelette de bout en bout dès le premier jour | Le principal risque n'est pas une technologie prise isolément, mais leur assemblage : réseau Docker, ports, mode de rendu Blazor. Une page Blazor qui affiche l'état de l'API, lancée par Docker Compose, valide toute la chaîne avant d'écrire les fonctionnalités. |
 | Une base PostgreSQL de test séparée et jetable | Les tests vident les tables avant chaque cas. Ils ne doivent jamais toucher aux données de démonstration. |
-| Verrouiller la commande au début de la transaction de validation | Sans ce verrou, deux validations simultanées des dernières lignes d'une commande peuvent la laisser au statut `en_cours` alors que tout est préparé. Mesure sur 200 essais : 25 erreurs sans verrou, 0 avec. Explication en section 3.3. |
+| Verrouiller la commande au début de la transaction de validation | Sans ce verrou, deux validations simultanées des dernières lignes d'une commande peuvent la laisser au statut `en_cours` alors que tout est préparé. Mesure de l'étape 5, avec un départ simultané et deux lignes sur deux produits différents : 200 commandes sur 200 restées `en_cours` sans le verrou, 0 sur 100 avec. Explication en section 3.3. |
 
 ---
 
@@ -481,7 +481,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 3. Une seconde validation de la même ligne est refusée, et le stock n'a baissé qu'une fois.
 4. 10 validations simultanées sur un produit dont le stock n'en couvre que 3 donnent exactement 3 succès, 7 refus, et un stock final exact.
 5. La première ligne validée fait passer la commande à `en_cours`, la dernière à `prete`.
-6. Les deux dernières lignes d'une commande validées en parallèle, répété 50 fois, donnent toujours `prete`.
+6. Les deux dernières lignes d'une commande validées en parallèle, répété 50 fois, donnent toujours `prete`. Les deux lignes portent sur deux produits différents : avec un seul produit, le verrou sur la ligne de `products` (étape 3 de la transaction) ferait passer les deux validations l'une après l'autre, et le test réussirait même sans le verrou sur la commande.
 7. La même ligne validée deux fois en parallèle donne un succès et un refus.
 
 **Contrôle de l'efficacité des tests :**
@@ -507,13 +507,14 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 - **Contenu :**
   - lecture du corps JSON ;
-  - validation du nom du préparateur (non vide, 50 caractères au maximum) ;
+  - validation du nom du préparateur (non vide, 50 caractères au maximum, sans caractère de contrôle : PostgreSQL refuse le caractère NUL, qui donnerait sinon une erreur 500 au lieu d'un 400) ;
   - traduction des erreurs métier en codes HTTP par un `switch` sur `errors.Is`.
 - **Notions Go :** `json.Decoder`, `DisallowUnknownFields`, `http.MaxBytesReader`.
 - **Vérification :** requêtes HTTP (commandes fournies pour PowerShell et bash) :
   - une première validation renvoie 200 ;
   - la même validation renvoie ensuite 409 `deja_preparee` ;
-  - une ligne de CMD-0004 renvoie 409 `stock_insuffisant`.
+  - une ligne de CMD-0004 renvoie 409 `stock_insuffisant` ;
+  - un nom de préparateur contenant `\u0000` renvoie 400 `requete_invalide`.
 
 ### Étape 8 : écran liste des commandes (1 h 30)
 
@@ -625,7 +626,7 @@ Seulement s'il reste du temps. Dans l'ordre :
 
 1. historique des mouvements de stock, avec un test ;
 2. alerte de stock bas ;
-3. annulation d'une validation, écartée par défaut car c'est la plus risquée.
+3. annulation d'une validation, écartée par défaut car c'est la plus risquée : elle ferait remonter le stock, ce qu'aucune opération ne fait aujourd'hui. Il faudrait alors traiter le cas où le stock relu après un refus suffit (`InsufficientStockError`), avec un test.
 
 Pour aller plus loin : [parcours Blazor de Microsoft Learn](https://learn.microsoft.com/training/paths/build-web-apps-with-blazor/), [persistance de l'état pré-rendu avec `[PersistentState]`](https://learn.microsoft.com/aspnet/core/blazor/state-management/prerendered-state-persistence).
 

@@ -6,6 +6,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -29,8 +30,51 @@ func ValidStatus(status string) bool {
 }
 
 // Erreurs métier : déclarées une seule fois, et reconnues avec errors.Is.
-// La couche HTTP les traduit en codes de réponse.
-var ErrOrderNotFound = errors.New("commande introuvable")
+// La couche HTTP les traduit en codes de réponse (docs/PLAN.md, section 4.3).
+var (
+	ErrOrderNotFound     = errors.New("commande introuvable")
+	ErrLineNotFound      = errors.New("ligne introuvable")
+	ErrAlreadyPicked     = errors.New("ligne déjà préparée")
+	ErrInsufficientStock = errors.New("stock insuffisant")
+)
+
+// InsufficientStockError précise ErrInsufficientStock avec les quantités en
+// jeu. errors.Is(err, ErrInsufficientStock) la reconnaît grâce à sa méthode
+// Is, et errors.As permet d'en lire les champs.
+//
+// Available est relu juste après le refus, par une nouvelle instruction : le
+// stock a pu baisser entre-temps. Il reste inférieur à Requested tant que rien
+// n'augmente le stock, ce qui est le cas : aucune opération de l'application
+// ne le fait remonter.
+type InsufficientStockError struct {
+	Available int // stock relu juste après le refus
+	Requested int // quantité demandée par la ligne
+}
+
+// Quantities décrit les quantités en jeu, par exemple « 3 disponibles,
+// 4 demandés » : c'est la fin du message montré au préparateur.
+func (e *InsufficientStockError) Quantities() string {
+	return countOf(e.Available, "disponible") + ", " + countOf(e.Requested, "demandé")
+}
+
+// Error renvoie le texte de l'erreur, pour les journaux.
+func (e *InsufficientStockError) Error() string {
+	return "stock insuffisant : " + e.Quantities()
+}
+
+// Is fait reconnaître cette erreur par errors.Is(err, ErrInsufficientStock).
+func (e *InsufficientStockError) Is(target error) bool {
+	return target == ErrInsufficientStock
+}
+
+// countOf écrit un nombre suivi de son mot, au pluriel à partir de 2, comme
+// le veut le français : « 0 disponible », « 1 disponible », « 3 disponibles ».
+func countOf(n int, word string) string {
+	if n >= 2 {
+		word += "s"
+	}
+	return fmt.Sprintf("%d %s", n, word)
+}
 
 // Store donne accès à la base par un pool de connexions.
 type Store struct {
