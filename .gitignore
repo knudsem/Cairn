@@ -1,0 +1,18 @@
+# Contexte personnel, ne jamais commiter
+CONTEXTE_CHAT.md
+
+# Compilation .NET
+bin/
+obj/
+
+# Réglages personnels des éditeurs
+.vs/
+.idea/
+*.user
+
+# Exécutable produit par go build
+api/api
+api/api.exe
+
+# Variables d'environnement locales
+.env

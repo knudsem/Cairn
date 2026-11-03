@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Cairn">
+  <rect width="200" height="200" rx="46" fill="#1B2A41"/>
+
+  <path d="M82 60 C82 46 92 36 100 36 C108 36 118 46 118 60 C118 63 115 64 112 64 L88 64 C85 64 82 63 82 60 Z" fill="#F4EFE6"/>
+  <path d="M62 86 C62 76 78 70 100 70 C122 70 138 76 138 86 C138 92 132 95 124 95 L76 95 C68 95 62 92 62 86 Z" fill="#F4EFE6"/>
+  <path d="M52 162 C47 162 44 159 44 154 C44 124 69 101 100 101 C131 101 156 124 156 154 C156 159 153 162 148 162 Z" fill="#F4EFE6"/>
+  <path d="M70 166 L70 132 L100 114 L130 132 L130 166 Z" fill="#1B2A41" stroke="#1B2A41" stroke-width="6" stroke-linejoin="round"/>
+
+  <path d="M82 136 L94 130 L118 130 L106 136 Z" fill="#E9BF8A"/>
+  <path d="M106 136 L118 130 L118 154 L106 160 Z" fill="#B9824A"/>
+  <rect x="82" y="136" width="24" height="24" fill="#D9A066"/>
+  <path d="M92 136 L96 136 L108 130 L104 130 Z" fill="#F6DDB6"/>
+  <rect x="92" y="136" width="4" height="9" fill="#F6DDB6"/>
+</svg>

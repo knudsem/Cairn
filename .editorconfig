@@ -1,0 +1,9 @@
+# Réglages communs à tous les éditeurs.
+# Pris en charge nativement par Visual Studio et Rider ;
+# dans VS Code, avec l'extension EditorConfig.EditorConfig.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true

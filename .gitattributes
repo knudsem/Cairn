@@ -1,0 +1,14 @@
+# Fins de ligne
+#
+# Tous les fichiers texte sont stockés avec des fins de ligne LF dans le
+# dépôt, et extraits en LF dans le dossier de travail, y compris sous
+# Windows. Une seule règle pour tout le projet : les fichiers lus par Linux
+# dans les conteneurs (SQL, Dockerfile, compose.yaml, Go) ne reçoivent
+# jamais de CRLF, quelle que soit la configuration Git de la machine.
+* text=auto eol=lf
+
+# Fichiers binaires : Git ne les modifie jamais.
+*.png binary
+*.jpg binary
+*.ico binary
+*.mp4 binary
