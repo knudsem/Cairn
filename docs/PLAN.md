@@ -85,7 +85,9 @@ Cairn/
         store.go               types (Order, Line, Product) et erreurs métier
         queries.go             lectures : liste, détail, produits
         pick.go                règle métier : PickLine, une transaction
-        pick_test.go           tests sur une vraie base
+        db_test.go             tests : connexion à la base de test, outils communs
+        pick_test.go           tests de PickLine, concurrence comprise
+        queries_test.go        tests des lectures
       httpapi/
         routes.go              table des routes
         handlers.go            traduction HTTP ↔ store
@@ -264,7 +266,7 @@ Une dizaine de produits, avec des emplacements numérotés sur deux chiffres (`A
 
 ### 3.5 Évolutions optionnelles
 
-Chaque évolution ajoute un script `003_...sql`, justifié dans le README. Comme les scripts d'initialisation ne s'exécutent que sur un volume vide, leur application demande `docker compose down -v`.
+Chaque évolution ajoute un script `003_...sql`, justifié dans le README. Comme les scripts d'initialisation ne s'exécutent que sur un volume vide, leur application demande `docker compose down -v`. Si le script modifie le schéma, il doit aussi être monté dans le service `db-test` de `compose.yaml`, qui ne reçoit que les scripts de schéma.
 
 ```sql
 CREATE TABLE stock_movements (
@@ -472,7 +474,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 ### Étape 6 : tests Go (2 h)
 
-**Base de test :** service `db-test` dans `compose.yaml`, avec `profiles: ["test"]` et ses données en mémoire (`tmpfs`). Lancement : `docker compose up -d --wait db-test`. Chaque test vide les tables puis insère ses propres données.
+**Base de test :** service `db-test` dans `compose.yaml`, avec `profiles: ["test"]` et ses données en mémoire (`tmpfs`). Lancement : `docker compose up -d --wait db-test`. Elle ne reçoit que le schéma (`001_schema.sql`), et s'appelle `cairn_test`. Chaque test vide les tables, fait repartir les identifiants de plages distinctes (produits 1, commandes 101, lignes 201 : un code qui confond deux identifiants ne passe pas par coïncidence), puis insère ses propres données. À la fin de chaque test, aucune transaction ne doit rester ouverte (Commit ou Rollback oublié). Garde-fou : les tests refusent de tourner sur une base dont le nom ne se termine pas par `_test`, ce qui protège les données de démonstration. La variable `TEST_DATABASE_URL` permet de viser une autre base de test.
 
 **Cas testés :**
 
@@ -484,24 +486,38 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 6. Les deux dernières lignes d'une commande validées en parallèle, répété 50 fois, donnent toujours `prete`. Les deux lignes portent sur deux produits différents : avec un seul produit, le verrou sur la ligne de `products` (étape 3 de la transaction) ferait passer les deux validations l'une après l'autre, et le test réussirait même sans le verrou sur la commande.
 7. La même ligne validée deux fois en parallèle donne un succès et un refus.
 
+S'y ajoutent :
+
+- commande et ligne introuvables, ligne d'une autre commande (test en table) ;
+- validation interrompue juste après la baisse du stock : rien ne doit être enregistré (un traceur pgx fait échouer l'étape 4 de la transaction) ;
+- texte et reconnaissance de `InsufficientStockError`, et `ValidStatus` ;
+- les lectures de l'étape 4 : ordre de la liste et avancement, commande sans ligne, filtre, tri par emplacement, listes vides, dates en UTC.
+
 **Contrôle de l'efficacité des tests :**
 
 - retirer temporairement `AND stock_qty >= $2` doit faire échouer le test 4 (erreur `23514`) ;
 - retirer le `FOR UPDATE` doit faire échouer le test 6 ;
+- retirer l'`ORDER BY` de `ListOrders` doit faire échouer le test de la liste : ses commandes sont créées dans l'ordre inverse de l'ordre attendu ;
 - résultat à consigner dans NOTES.md, section Expérimentations.
+
+Résultat obtenu : sans la condition, le test 4 échoue sur la contrainte `products_stock_qty_check` (erreur 23514), qui joue son rôle de filet de sécurité ; sans le `FOR UPDATE`, le test 6 échoue (« statut = en_cours alors que les deux lignes sont préparées »), au premier tour ou seulement au deuxième. Au premier tour, la première utilisation des connexions décale souvent les deux transactions, qui ne se chevauchent plus : d'où les 50 répétitions. Sans l'`ORDER BY`, le test de la liste échoue à chaque lancement.
+
+Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans une copie du code. 16 passaient les tests, qui ont été renforcés en conséquence. Il n'en reste que 3, sans conséquence ou écartées : `FOR NO KEY UPDATE` au lieu de `FOR UPDATE` (verrou équivalent ici), le départage par `o.id` de deux commandes créées au même instant (l'ordre des ex aequo n'est pas vérifiable de façon fiable), et le niveau d'isolation de `GetOrder` (REPEATABLE READ), dont le test demanderait d'intercaler une validation entre ses deux lectures.
 
 **Notions Go :**
 
 - `t.Fatal`, `t.Errorf`, `t.Helper` ;
 - goroutines ;
 - `sync.WaitGroup` et `wg.Go` (depuis Go 1.25) ;
-- barrière de départ : un channel fermé pour libérer toutes les goroutines en même temps.
+- barrière de départ : un channel fermé pour libérer toutes les goroutines en même temps ;
+- `t.Cleanup` ;
+- interfaces implicites : un type qui a les deux méthodes de `pgx.QueryTracer` en est un, sans le déclarer.
 
-**Commande :** `go test -count=1 ./...`. L'option `-count=1` désactive le cache des résultats, inadapté à des tests qui dépendent d'une base.
+**Commande :** `go test -count=1 ./...`. L'option `-count=1` désactive le cache des résultats, inadapté à des tests qui dépendent d'une base. Par défaut, `go test ./...` teste plusieurs paquets en même temps : si un second paquet utilise un jour la base de test, il faudra ajouter `-p 1`.
 
 **Arrêt complet, base de test comprise :** `docker compose --profile test down`. Un simple `docker compose down` laisse `db-test` tourner.
 
-**Documentation :** [écrire un test](https://go.dev/doc/tutorial/add-a-test), [testing](https://pkg.go.dev/testing), [tests en table](https://go.dev/wiki/TableDrivenTests), [WaitGroup](https://pkg.go.dev/sync#WaitGroup), [race detector](https://go.dev/doc/articles/race_detector), [profils Compose](https://docs.docker.com/compose/how-tos/profiles/), [PgError](https://pkg.go.dev/github.com/jackc/pgx/v5/pgconn#PgError)
+**Documentation :** [écrire un test](https://go.dev/doc/tutorial/add-a-test), [testing](https://pkg.go.dev/testing), [tests en table](https://go.dev/wiki/TableDrivenTests), [WaitGroup](https://pkg.go.dev/sync#WaitGroup), [race detector](https://go.dev/doc/articles/race_detector), [profils Compose](https://docs.docker.com/compose/how-tos/profiles/), [PgError](https://pkg.go.dev/github.com/jackc/pgx/v5/pgconn#PgError), [QueryTracer](https://pkg.go.dev/github.com/jackc/pgx/v5#QueryTracer), [ordre sans ORDER BY](https://www.postgresql.org/docs/18/queries-order.html), [pg_stat_activity](https://www.postgresql.org/docs/18/monitoring-stats.html#MONITORING-PG-STAT-ACTIVITY-VIEW)
 
 ### Étape 7 : endpoint de validation (45 min)
 
@@ -697,7 +713,11 @@ Les commandes `go`, `dotnet`, `docker` et `git` s'écrivent de la même façon d
 | Appeler curl | `curl.exe` (dans Windows PowerShell 5.1, `curl` est un alias d'`Invoke-WebRequest`) | `curl` |
 | Enchaîner deux commandes | une commande par ligne (`&&` n'existe pas dans Windows PowerShell 5.1) | `&&` |
 
-`go test -race` nécessite un compilateur C (cgo), généralement absent sous Windows : cette option est facultative.
+`go test -race` nécessite un compilateur C (cgo), généralement absent sous Windows. L'image `golang:1.27` en contient un : avec `db-test` lancée, depuis le dossier du dépôt :
+
+```powershell
+docker run --rm --network cairn_default -v "${PWD}\api:/src:ro" -w /src -e TEST_DATABASE_URL=postgres://cairn:cairn@db-test:5432/cairn_test?sslmode=disable golang:1.27 go test -race -count=1 ./...
+```
 
 ### 7.2 Emplacement du dépôt : hors OneDrive
 

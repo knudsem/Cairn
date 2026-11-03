@@ -39,6 +39,34 @@ services:
       timeout: 5s
       retries: 30
 
+  db-test:
+    # Base jetable des tests Go (docs/PLAN.md, étape 6). Lancée seulement à la
+    # demande (profil « test ») : docker compose up -d --wait db-test.
+    # Données en mémoire (tmpfs), perdues à l'arrêt, et pas de données de
+    # démonstration : chaque test vide les tables et crée les siennes.
+    image: postgres:18
+    profiles: ["test"]
+    environment:
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn
+      # Le suffixe _test est exigé par les tests, qui refusent de vider une
+      # base dont le nom ne se termine pas ainsi.
+      POSTGRES_DB: cairn_test
+    ports:
+      - "127.0.0.1:5433:5432"
+    tmpfs:
+      - /var/lib/postgresql
+    volumes:
+      # Le schéma seulement, sans 002_seed.sql.
+      - ./db/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+    healthcheck:
+      # Même principe que pour db ; -d cairn_test, car aucune base ne porte
+      # le nom de l'utilisateur dans ce conteneur.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cairn", "-d", "cairn_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   api:
     # Image construite à partir de api/Dockerfile.
     build: ./api
