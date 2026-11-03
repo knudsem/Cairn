@@ -1,6 +1,12 @@
 # Conteneurs de Cairn, décrits pour Docker Compose.
-# Étape 1 : la base de données seule. L'API Go (api) et l'interface
-# Blazor (web) s'ajoutent aux étapes suivantes.
+# Lancement complet : docker compose up --build
+#
+# navigateur -> web (Blazor, port 8081) -> api (Go, port 8080) -> db (PostgreSQL, port 5432)
+#
+# Chaque port n'est publié que sur 127.0.0.1 : joignable depuis ce poste,
+# jamais depuis le réseau. Côté Windows, se connecter avec 127.0.0.1 plutôt
+# que localhost (voir docs/PLAN.md, section 2.1). Entre conteneurs, chaque
+# service se joint par son nom : db, api.
 
 services:
   db:
@@ -14,9 +20,6 @@ services:
       POSTGRES_PASSWORD: cairn
       POSTGRES_DB: cairn
     ports:
-      # Port publié seulement sur 127.0.0.1 : joignable depuis ce poste,
-      # jamais depuis le réseau. Côté Windows, se connecter avec 127.0.0.1
-      # et non localhost (voir docs/PLAN.md, section 2.1).
       - "127.0.0.1:5432:5432"
     volumes:
       # Données de la base, conservées d'un démarrage à l'autre.
@@ -35,6 +38,38 @@ services:
       interval: 2s
       timeout: 5s
       retries: 30
+
+  api:
+    # Image construite à partir de api/Dockerfile.
+    build: ./api
+    environment:
+      DATABASE_URL: postgres://cairn:cairn@db:5432/cairn?sslmode=disable
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      # L'API ne démarre qu'une fois la base prête.
+      db:
+        condition: service_healthy
+    healthcheck:
+      # « Prête » quand GET /health répond 200, donc quand l'API et la base
+      # répondent. wget est fourni par Alpine.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  web:
+    # Image construite à partir de web/Dockerfile.
+    build: ./web
+    environment:
+      ApiBaseUrl: http://api:8080/
+    ports:
+      # Le conteneur écoute sur 8080, publié sur le port 8081 du poste.
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      # L'interface ne démarre qu'une fois l'API prête.
+      api:
+        condition: service_healthy
 
 volumes:
   db-data:

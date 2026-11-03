@@ -324,6 +324,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 | 409 | `deja_preparee` | ligne déjà validée |
 | 409 | `stock_insuffisant` | stock inférieur à la quantité demandée |
 | 500 | `erreur_interne` | message générique ; le détail reste dans les journaux du serveur |
+| 503 | `base_indisponible` | `GET /health` : la base de données ne répond pas |
 
 ### 4.4 Points d'attention
 
@@ -379,7 +380,8 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 - **Commandes :** `go mod init github.com/knudsem/cairn/api`, `go get github.com/jackc/pgx/v5`.
 - **Contenu de `main.go` :**
-  - lecture de `DATABASE_URL`, avec la base locale de développement par défaut ;
+  - lecture de `DATABASE_URL`, avec la base locale de développement par défaut (`postgres://cairn:cairn@127.0.0.1:5432/cairn?sslmode=disable`) ;
+  - lecture de `API_ADDR`, `127.0.0.1:8080` par défaut : en local, l'API n'est pas exposée au réseau et le pare-feu de Windows ne se déclenche pas à chaque `go run` ; dans le conteneur, `API_ADDR` vaut `:8080` ;
   - pool de connexions ;
   - route `GET /health`.
 - **Notions Go :**

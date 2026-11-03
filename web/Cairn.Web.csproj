@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <!-- Le script blazor.web.js vient d'un paquet que le SDK n'ajoute que s'il
+         voit des fichiers .razor. Le Dockerfile restaure les paquets avec le
+         seul fichier projet, avant de copier ces fichiers : sans cette ligne,
+         l'image serait publiée sans le script, et les pages resteraient vides. -->
+    <RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>
+  </PropertyGroup>
+
+</Project>

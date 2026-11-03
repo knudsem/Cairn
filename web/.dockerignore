@@ -1,0 +1,4 @@
+# Résultats de compilation de Windows : l'image recompile tout elle-même.
+# Copiés dans l'image, ils remplaceraient ceux de la restauration Linux.
+bin/
+obj/

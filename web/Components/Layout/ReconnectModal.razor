@@ -1,0 +1,33 @@
+<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
+
+@* Fenêtre affichée par Blazor quand la connexion avec le serveur est perdue
+   (Wi-Fi coupé, serveur redémarré). Composant du modèle .NET 10, textes traduits. *@
+<dialog id="components-reconnect-modal" data-nosnippet>
+    <div class="components-reconnect-container">
+        <div class="components-rejoining-animation" aria-hidden="true">
+            <div></div>
+            <div></div>
+        </div>
+        <p class="components-reconnect-first-attempt-visible">
+            Connexion perdue. Reconnexion en cours...
+        </p>
+        <p class="components-reconnect-repeated-attempt-visible">
+            La reconnexion a échoué. Nouvel essai dans <span id="components-seconds-to-next-attempt"></span> secondes.
+        </p>
+        <p class="components-reconnect-failed-visible">
+            Impossible de se reconnecter.<br />Réessayez ou rechargez la page.
+        </p>
+        <button id="components-reconnect-button" class="components-reconnect-failed-visible">
+            Réessayer
+        </button>
+        <p class="components-pause-visible">
+            La session a été mise en pause.
+        </p>
+        <p class="components-resume-failed-visible">
+            Impossible de reprendre la session.<br />Réessayez ou rechargez la page.
+        </p>
+        <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
+            Reprendre
+        </button>
+    </div>
+</dialog>

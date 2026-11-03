@@ -1,0 +1,51 @@
+@page "/"
+@inject CairnApiClient Api
+
+<PageTitle>Cairn</PageTitle>
+
+<h1>Préparation des commandes</h1>
+
+@* aria-live : un lecteur d'écran annonce le nouvel état quand il change. *@
+<section aria-live="polite">
+    @switch (health)
+    {
+        case null:
+            <p class="status status-pending">Vérification de la connexion...</p>
+            break;
+        case ApiHealth.Ok:
+            <p class="status status-ok">API connectée</p>
+            break;
+        case ApiHealth.DatabaseUnavailable:
+            <p class="status status-warning">API connectée, mais la base de données ne répond pas</p>
+            break;
+        default:
+            <p class="status status-error">API injoignable</p>
+            break;
+    }
+</section>
+
+<button class="button" @onclick="CheckAgainAsync" disabled="@(health is null)">Vérifier à nouveau</button>
+
+@code {
+    // État de l'API ; null pendant une vérification.
+    private ApiHealth? health;
+
+    // Appelée une fois, quand la page s'affiche.
+    protected override async Task OnInitializedAsync()
+    {
+        health = await Api.GetHealthAsync();
+    }
+
+    private async Task CheckAgainAsync()
+    {
+        // Un second appui peut partir avant que le bouton soit désactivé à
+        // l'écran : le serveur l'ignore si une vérification est déjà en cours.
+        if (health is null)
+        {
+            return;
+        }
+
+        health = null;
+        health = await Api.GetHealthAsync();
+    }
+}

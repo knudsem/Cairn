@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <base href="/" />
+    <ResourcePreloader />
+    <link rel="icon" type="image/svg+xml" href="@Assets["cairn-icon.svg"]" />
+    <link rel="stylesheet" href="@Assets["app.css"]" />
+    <link rel="stylesheet" href="@Assets["Cairn.Web.styles.css"]" />
+    <ImportMap />
+    <HeadOutlet @rendermode="InteractiveServerNoPrerender" />
+</head>
+
+<body>
+    <Routes @rendermode="InteractiveServerNoPrerender" />
+    <ReconnectModal />
+    @* Bandeau affiché par Blazor en cas d'erreur inattendue. Il est ici, et non
+       dans MainLayout, pour exister dès le premier chargement : sans pré-rendu,
+       MainLayout n'apparaît qu'une fois le circuit établi, et une erreur au
+       premier affichage laisserait sinon une page blanche. *@
+    <div id="blazor-error-ui" data-nosnippet>
+        Une erreur inattendue s'est produite.
+        <a href="." class="reload">Recharger la page</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>
+
+@code {
+    // Rendu interactif côté serveur, sans pré-rendu : chaque page n'est rendue
+    // qu'une fois, donc n'appelle l'API qu'une fois (docs/PLAN.md, section 2.2).
+    private static readonly IComponentRenderMode InteractiveServerNoPrerender =
+        new InteractiveServerRenderMode(prerender: false);
+}
