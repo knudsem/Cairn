@@ -1,0 +1,40 @@
+# Conteneurs de Cairn, décrits pour Docker Compose.
+# Étape 1 : la base de données seule. L'API Go (api) et l'interface
+# Blazor (web) s'ajoutent aux étapes suivantes.
+
+services:
+  db:
+    # Version majeure fixée : les versions mineures 18.x n'apportent que
+    # des correctifs.
+    image: postgres:18
+    environment:
+      # Identifiants d'un prototype local, sans valeur secrète. L'image crée
+      # l'utilisateur et la base au premier démarrage.
+      POSTGRES_USER: cairn
+      POSTGRES_PASSWORD: cairn
+      POSTGRES_DB: cairn
+    ports:
+      # Port publié seulement sur 127.0.0.1 : joignable depuis ce poste,
+      # jamais depuis le réseau. Côté Windows, se connecter avec 127.0.0.1
+      # et non localhost (voir docs/PLAN.md, section 2.1).
+      - "127.0.0.1:5432:5432"
+    volumes:
+      # Données de la base, conservées d'un démarrage à l'autre.
+      # Avec PostgreSQL 18, le volume se monte sur /var/lib/postgresql.
+      # "docker compose down -v" supprime ce volume : la base repart de zéro.
+      - db-data:/var/lib/postgresql
+      # Scripts SQL exécutés par l'image dans l'ordre alphabétique, une seule
+      # fois, quand le volume est vide. Montés en lecture seule (ro).
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # « Prête » seulement après l'initialisation : pendant celle-ci, le
+      # serveur temporaire n'écoute pas sur le réseau, et -h 127.0.0.1 oblige
+      # pg_isready à passer par le réseau. -U cairn évite l'erreur
+      # « role "root" does not exist » dans les journaux.
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "cairn"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  db-data:

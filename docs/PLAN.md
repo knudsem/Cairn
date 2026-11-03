@@ -37,9 +37,11 @@ web : Blazor .NET 10, mode Interactive Server     http://localhost:8081
     ↓  HTTP + JSON, réseau interne Docker : http://api:8080
 api : Go, net/http + pgx                          http://localhost:8080
     ↓  protocole PostgreSQL
-db  : PostgreSQL 18                               localhost:5432
-db-test : PostgreSQL 18 jetable, tests seulement  localhost:5433
+db  : PostgreSQL 18                               127.0.0.1:5432
+db-test : PostgreSQL 18 jetable, tests seulement  127.0.0.1:5433
 ```
+
+Les ports de la base ne sont publiés que sur `127.0.0.1` : la base n'est pas joignable depuis le réseau, ce qui compte avec un mot de passe de prototype. Depuis Windows (API lancée avec `go run`, tests), on s'y connecte donc toujours avec `127.0.0.1`, jamais avec `localhost` : Windows essaie d'abord l'adresse IPv6 `::1`, sur laquelle Docker n'écoute pas, et chaque connexion attend environ 2 secondes avant de passer à `127.0.0.1`. Dans le réseau Docker, l'API joint la base par le nom de son service : `db:5432`.
 
 ### 2.2 Mode de rendu Blazor
 
@@ -367,7 +369,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 - **Points de vigilance :**
   - avec PostgreSQL 18, le volume se monte sur `/var/lib/postgresql` ; l'ancien chemin `/var/lib/postgresql/data` empêche le conteneur de démarrer ;
   - les scripts d'initialisation ne s'exécutent que sur un volume vide ;
-  - le healthcheck utilise `pg_isready -h localhost`, car pendant l'initialisation le serveur temporaire n'écoute que sur le socket Unix.
+  - le healthcheck utilise `pg_isready -h 127.0.0.1 -U cairn` : pendant l'initialisation, le serveur temporaire n'écoute que sur le socket Unix, donc la base n'est déclarée prête qu'une fois les scripts exécutés ; `-U cairn` évite l'erreur `role "root" does not exist` dans les journaux.
 - **Vérification :**
   - `docker compose up -d --wait db` ;
   - `docker compose exec db psql -U cairn -d cairn`, puis `UPDATE products SET stock_qty = -1 WHERE id = 1;` doit renvoyer `violates check constraint "products_stock_qty_check"`.
