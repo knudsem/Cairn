@@ -12,7 +12,7 @@ Sommaire :
 6. Planning
 7. Environnement de développement
 
-Versions de référence : Go 1.27, .NET 10 (LTS), PostgreSQL 18.
+Versions de référence : Go 1.27, .NET 10 (LTS), PostgreSQL 18. Version en ligne : Render (offre gratuite) et Neon (PostgreSQL 18), voir l'étape 11.
 
 ---
 
@@ -41,7 +41,7 @@ db  : PostgreSQL 18                               127.0.0.1:5432
 db-test : PostgreSQL 18 jetable, tests seulement  127.0.0.1:5433
 ```
 
-Les ports de la base ne sont publiés que sur `127.0.0.1` : la base n'est pas joignable depuis le réseau, ce qui compte avec un mot de passe de prototype. Depuis Windows (API lancée avec `go run`, tests), on s'y connecte donc toujours avec `127.0.0.1`, jamais avec `localhost` : Windows essaie d'abord l'adresse IPv6 `::1`, sur laquelle Docker n'écoute pas, et chaque connexion attend environ 2 secondes avant de passer à `127.0.0.1`. Dans le réseau Docker, l'API joint la base par le nom de son service : `db:5432`.
+Tous les ports (base, API, interface) ne sont publiés que sur `127.0.0.1` : rien n'est joignable depuis le réseau, ce qui compte avec un mot de passe de prototype et une API sans authentification. Depuis Windows (API lancée avec `go run`, tests), on vise donc toujours `127.0.0.1`, jamais `localhost` : Windows essaie d'abord l'adresse IPv6 `::1`, sur laquelle Docker n'écoute pas, et chaque connexion attend environ 2 secondes avant de passer à `127.0.0.1`. Un navigateur accepte `localhost` : il bascule vers IPv4 en quelques centaines de millisecondes. Dans le réseau Docker, chaque service joint les autres par leur nom : `db:5432`, `api:8080`. En local, la démonstration se fait donc sur le poste, avec le mode tablette des outils de développement (étape 10) ; le lien public vient du déploiement (étape 11).
 
 ### 2.2 Mode de rendu Blazor
 
@@ -63,6 +63,7 @@ Cairn/
   NOTES.md                     journal d'apprentissage
   SCOPE.md                     périmètre fonctionnel
   compose.yaml                 services db, api, web (+ db-test)
+  render.yaml                  déploiement sur Render (étape 11)
   .gitattributes               fins de ligne LF
   .editorconfig                réglages communs aux éditeurs
   .gitignore
@@ -74,6 +75,7 @@ Cairn/
     init/
       001_schema.sql           tables et contraintes
       002_seed.sql             données de démonstration
+    reset.sql                  remise à zéro d'une base hors Docker (Neon, étape 11)
   api/                         module Go
     go.mod, go.sum
     main.go                    démarrage : configuration, connexion, serveur HTTP
@@ -95,7 +97,7 @@ Cairn/
     appsettings.json, appsettings.Development.json
     Api/
       CairnApiClient.cs        seul endroit qui connaît les URL de l'API
-      Models.cs                records C# décrivant le JSON
+      Models.cs                types échangés avec l'API : records du JSON, état ApiHealth
     State/
       PickerState.cs           nom du préparateur sélectionné
     Components/
@@ -113,7 +115,7 @@ Cairn/
 | Choix | Justification |
 |---|---|
 | Un dossier par conteneur (`db`, `api`, `web`) | La structure du dépôt reflète l'architecture. |
-| Scripts `db/init/` exécutés par l'image officielle PostgreSQL | Mécanisme documenté de l'image, sans code à écrire. Limite : les scripts ne s'exécutent que sur un volume vide ; `docker compose down -v` repart de zéro. Il n'y a pas d'outil de migration, ce qui est assumé pour un prototype ; un projet durable utiliserait goose, golang-migrate ou l'outil déjà en place. |
+| Scripts `db/init/` exécutés par l'image officielle PostgreSQL | Mécanisme documenté de l'image, sans code à écrire. Limite : les scripts ne s'exécutent que sur un volume vide ; `docker compose down -v` repart de zéro. Il n'y a pas d'outil de migration, ce qui est assumé pour un prototype ; un projet durable utiliserait goose, golang-migrate ou l'outil déjà en place. Les deux scripts restent du SQL standard, sans commande propre à psql ni à Docker : `db/reset.sql` les rejoue sur la base en ligne (étape 11). |
 | `main.go` à la racine du module Go et paquets dans `internal/` | Disposition officielle « commande avec paquets annexes » ([go.dev/doc/modules/layout](https://go.dev/doc/modules/layout)). Le compilateur interdit d'importer `internal/` depuis l'extérieur du module. |
 | Deux paquets : `store` et `httpapi` | `store` parle SQL et ignore HTTP ; `httpapi` parle HTTP et ignore SQL. Les erreurs métier (`ErrInsufficientStock`, etc.) font le lien. Le nom `http` est évité car il entrerait en conflit avec `net/http`. |
 | Pas de couche « service » ni « repository » | La règle métier est une transaction SQL. Une couche qui ne ferait que déléguer ajouterait des fichiers sans rien protéger. Elle sera extraite si la logique grandit. |
@@ -121,6 +123,7 @@ Cairn/
 | `CairnApiClient` | Les pages Blazor n'émettent jamais de requête HTTP directement : tous les appels passent par cette classe. |
 | `PickerState` en service « scoped » | En Interactive Server, une instance par onglet connecté. Le nom est perdu au rechargement de la page, ce qui est acceptable sans authentification. |
 | Modèle Blazor `--empty`, CSS sans librairie | Pas de Bootstrap ni de librairie de composants : une feuille de style courte, aux couleurs du logo (`#1B2A41`, `#F4EFE6`, `#D9A066`). |
+| Render (offre gratuite) et Neon pour la version en ligne | Gratuits, sans carte bancaire ; HTTPS automatique ; Render accepte les images Docker et les WebSockets de Blazor Server ; la base Neon n'expire pas, contrairement à la base gratuite de Render. Limites et parades à l'étape 11. |
 
 ---
 
@@ -404,12 +407,16 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
   - Dockerfile du web : `sdk:10.0` pour compiler, `aspnet:10.0` pour exécuter (écoute sur le port 8080) ;
   - `compose.yaml` avec les trois services, et `ApiBaseUrl=http://api:8080` pour le web.
   - pré-rendu désactivé (section 2.2).
+- **Points de vigilance :**
+  - avec .NET 10, le script `blazor.web.js` vient d'un paquet que le SDK n'ajoute que s'il voit des fichiers `.razor` au moment de la restauration. Le Dockerfile restaurant les paquets avec le seul fichier projet, `Cairn.Web.csproj` déclare `<RequiresAspNetWebAssets>true</RequiresAspNetWebAssets>`, et le Dockerfile vérifie la présence du script : sans lui, les pages resteraient blanches ;
+  - sans pré-rendu, seul `App.razor` existe au premier chargement : le bandeau d'erreur de Blazor y est placé, et non dans `MainLayout` ;
+  - un bouton désactivé ne bloque pas un second appui déjà parti du navigateur : le gestionnaire d'événement ignore un appui quand une opération est en cours.
 - **Notions C# :**
   - `Program.cs` ;
   - injection de dépendances (`AddHttpClient<CairnApiClient>`) ;
   - configuration (`appsettings.json` et variables d'environnement) ;
   - `async`/`await` et `Task` ;
-  - `record` ;
+  - `enum` ;
   - types nullables.
 - **Notions Blazor :**
   - fichiers `.razor` ;
@@ -425,7 +432,9 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 - **Contenu :**
   - dans `store` : `ListOrders`, `GetOrder`, `ListProducts` ;
-  - dans `httpapi` : les handlers, `writeJSON` et `writeError`.
+  - dans `httpapi` : les handlers, `writeJSON` et `writeError` ;
+  - reprise de deux corrections issues de la relecture de l'étape 3 : `go 1.27.0` dans `go.mod` (l'image `golang:1.27` refuse de compiler un module qui exige une version plus récente que la sienne) et arrêt propre de l'API sur Ctrl+C ou `docker compose stop` (requêtes en cours terminées, code de sortie 0).
+- **Point de vigilance :** une fois déployée, l'API sera joignable publiquement (étape 11) : chaque paramètre est validé, et aucune route d'administration n'est ajoutée.
 - **Notions Go :**
   - tags JSON ;
   - `*time.Time` et `*string` pour les valeurs `NULL` ;
@@ -504,12 +513,15 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 - **Contenu :**
   - une carte par commande : référence, client, statut (couleur et libellé, jamais la couleur seule), avancement ;
-  - sélection du préparateur par de grands boutons.
+  - sélection du préparateur par de grands boutons ;
+  - dans `CairnApiClient`, des chemins relatifs sans barre oblique initiale (`api/orders`), pour fonctionner avec n'importe quelle adresse de base (Compose ou Render) ;
+  - une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas.
 - **Notions C# et Blazor :**
   - `@foreach` ;
   - composants et `[Parameter]` ;
   - CSS isolé (`.razor.css`) ;
   - durée de vie « scoped » ;
+  - `record` (données JSON des commandes) ;
   - expressions `switch`.
 - **Vérification :** http://localhost:8081 affiche les commandes de la plus ancienne à la plus récente, avec trois couleurs de statut ; un appui sur une carte ouvre `/orders/{id}`.
 - **Documentation :** [composants](https://learn.microsoft.com/aspnet/core/blazor/components/), [routage](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/routing), [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [CSS isolé](https://learn.microsoft.com/aspnet/core/blazor/components/css-isolation), [records](https://learn.microsoft.com/dotnet/csharp/fundamentals/types/records), [expression switch](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression)
@@ -519,7 +531,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 - **Contenu :**
   - une carte par ligne : emplacement et quantité en très grand, nom du produit ;
   - bouton « Préparé » d'au moins 48 px de haut (64 px visés pour un usage avec des gants) ;
-  - bouton désactivé pendant l'appel, pour éviter les doubles validations ;
+  - bouton désactivé pendant l'appel, et garde-fou côté serveur : un appui reçu pendant un appel en cours, ou sur une ligne déjà préparée, est ignoré (un double appui avec des gants ne doit pas produire un 409 pour une validation réussie) ;
   - en cas de 409, message clair choisi d'après le code d'erreur, puis rechargement de la commande ;
   - quand la commande est prête, un bandeau et un bouton de retour.
 - **Notions C# et Blazor :**
@@ -541,13 +553,67 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 - API coupée puis navigateur hors ligne : la fenêtre de reconnexion apparaît.
 - **Documentation :** [SignalR et Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr)
 
-### Étape 11 : README, capture d'écran, vidéo de démonstration (1 h 30)
+### Étape 11 : déploiement en ligne (1 h)
 
-Contenu défini dans SCOPE.md, section 9.
+**Objectif :** un lien public en HTTPS, que la dirigeante et le développeur ouvrent dans leur navigateur sans rien installer. **Priorité :** inférieure aux tests, au README et à la préparation de la présentation ; si l'étape déborde, elle passe en soirée, après la répétition.
 
-### Étape 12 : évolutions optionnelles
+**Cible, vérifiée le 3 novembre 2026 sur les documentations officielles :**
 
-Seulement si le créneau tampon du jour 2 est libre. Dans l'ordre :
+- **Render, offre gratuite**, pour `api` et `web` : deux services web Docker construits depuis le dépôt GitHub, région Frankfurt, 0,1 CPU et 512 Mo de mémoire chacun. Render accepte les WebSockets, sans durée maximale : Blazor Server fonctionne, sans affinité de session puisqu'il n'y a qu'une instance. HTTPS automatique (Render termine le TLS et transmet du HTTP au conteneur).
+- **Neon, offre gratuite**, pour la base : PostgreSQL 18 (même version majeure qu'en local), région AWS Francfort, sans carte bancaire et sans expiration.
+- **Base gratuite de Render écartée :** elle expire 30 jours après sa création (puis 14 jours de grâce, puis suppression), sans sauvegarde, une seule par compte.
+
+**Contraintes de l'offre gratuite qui orientent les choix :**
+
+- un service s'endort après 15 minutes sans trafic entrant (requêtes HTTP ou messages WebSocket) et met environ une minute à se réveiller ; le navigateur voit pendant ce temps une page d'attente de Render. Ce que reçoit un client qui n'est pas un navigateur (l'interface qui appelle l'API) n'est pas documenté : probablement un 503, à mesurer ;
+- 750 heures gratuites par mois pour tout le compte, partagées entre les deux services ; épuisées, elles suspendent tout jusqu'au mois suivant. Deux services éveillés en permanence les épuisent vers le 16e jour ;
+- un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement ;
+- pas de commande « pre-deploy », de shell ni de tâche ponctuelle : le schéma et les données s'appliquent depuis le poste, avec psql ;
+- Neon endort la base après 5 minutes sans requête (réveil en quelques centaines de millisecondes, connexions coupées puis recréées par pgxpool) et accorde 100 heures de calcul (CU-heures) par mois, soit environ 400 heures avec la plus petite taille ;
+- sans `plan: free` explicite, Render crée un service payant ; sans `region: frankfurt`, il choisit l'Oregon, et la région ne change plus ensuite.
+
+**Fichiers :**
+
+- `render.yaml` (Blueprint), à la racine : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
+  - `cairn-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
+  - `cairn-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API (`fromService` avec `envVarKey: RENDER_EXTERNAL_URL` ; si Render ne la fournit pas, l'URL copiée depuis le tableau de bord) ; `ApiTimeoutSeconds=90`.
+- `db/reset.sql` : supprime les trois tables, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées.
+- `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle ; si l'API répond par la page d'attente de Render plutôt que par son JSON, message « démarrage en cours » plutôt que « base indisponible ».
+
+**Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS, et pgx gère `channel_binding` depuis la version 5.9.
+
+**Remise à zéro des données de démonstration**, sans installer psql (celui de l'image `postgres:18` suffit) :
+
+```powershell
+$env:DEMO_DATABASE_URL = "<chaîne directe Neon>"
+docker run --rm -v "${PWD}/db:/db:ro" postgres:18 psql $env:DEMO_DATABASE_URL -v ON_ERROR_STOP=1 -1 -f /db/reset.sql
+```
+
+Pas de route d'administration dans l'API pour cela : elle serait publique.
+
+**Limiter l'effet de la mise en veille :**
+
+- le délai de 90 s et le réveil de l'API au démarrage de l'interface évitent « API injoignable » pendant un réveil, et ramènent le premier chargement à une minute environ au lieu de deux ;
+- pendant la période d'évaluation seulement : un ping gratuit planifié avec cron-job.org sur `https://<web>/` et `https://<api>/health`, toutes les 10 minutes, en semaine de 8 h à 20 h (Europe/Paris). Cela fait environ 2 × 12 h × 22 jours = 528 heures, sous les 750 heures du mois, et Neon reste loin de ses 100 CU-heures. Render ne publie pas clairement sa position sur ces pings : on les limite à la période d'évaluation et on les arrête ensuite ;
+- un mot aux testeurs avec le lien : « le premier chargement peut prendre une minute ; une page d'attente s'affiche, c'est normal ».
+
+**Vérification sur le lien public :**
+
+- depuis un téléphone en 4G, donc hors du réseau local : `https://<web>.onrender.com` affiche le cadenas HTTPS, le logo et la liste des commandes ;
+- parcours complet : CMD-0001 jusqu'à « prête », refus de stock insuffisant sur CMD-0004 ;
+- après plus de 15 minutes sans visite : page d'attente de Render, puis l'application, sans « API injoignable » ; durée du réveil notée ;
+- remise à zéro avec `db/reset.sql`, puis rechargement : données de démonstration d'origine ;
+- journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep neon.tech` ne trouve rien).
+
+**Documentation :** [offre gratuite de Render](https://render.com/docs/free), [spécification Blueprint](https://render.com/docs/blueprint-spec), [Docker sur Render](https://render.com/docs/docker), [WebSockets sur Render](https://render.com/docs/websocket), [port des services web](https://render.com/docs/web-services), [health checks](https://render.com/docs/health-checks), [offres Neon](https://neon.com/docs/introduction/plans), [cycle de vie d'une compute Neon](https://neon.com/docs/introduction/compute-lifecycle), [choisir sa connexion Neon](https://neon.com/docs/connect/choose-connection), [connexion sécurisée à Neon](https://neon.com/docs/connect/connect-securely), [changelog de pgx](https://github.com/jackc/pgx/blob/master/CHANGELOG.md), [FAQ de cron-job.org](https://cron-job.org/en/faq/)
+
+### Étape 12 : README, capture d'écran, vidéo de démonstration (1 h 30)
+
+Contenu défini dans SCOPE.md, section 9, avec le lien public de l'étape 11 s'il existe.
+
+### Étape 13 : évolutions optionnelles
+
+Seulement s'il reste du temps. Dans l'ordre :
 
 1. historique des mouvements de stock, avec un test ;
 2. alerte de stock bas ;
@@ -586,11 +652,13 @@ L'étape 0 peut être réalisée la veille, ce qui libère 1 h 30 le jour 1.
 | 10h00 à 12h00 | Étape 9 : écran de préparation |
 | 12h00 à 13h00 | Pause |
 | 13h00 à 14h00 | Étape 10 : vérifications de bout en bout |
-| 14h00 à 15h30 | Étape 11 : README, capture, vidéo |
-| 15h30 à 16h30 | Créneau tampon : rattrapage, sinon évolutions optionnelles |
+| 14h00 à 15h00 | Étape 11 : déploiement en ligne (reporté en soirée s'il déborde) |
+| 15h00 à 16h30 | Étape 12 : README, capture, vidéo |
 | 16h30 à 18h30 | **Préparation de la présentation (2 h)** |
 | 18h30 à 19h00 | **Répétition (30 min)** |
-| Soirée | Relecture finale et livraison |
+| Soirée | Relecture finale, déploiement s'il a été reporté, livraison |
+
+Le déploiement prend la place du créneau tampon : les évolutions optionnelles (étape 13) ne se font qu'avec de l'avance.
 
 La présentation comporte quatre parties :
 
@@ -603,7 +671,7 @@ NOTES.md en fournit la matière.
 
 ### Priorités en cas de retard
 
-- **Supprimés en premier :** les évolutions optionnelles, puis les finitions visuelles.
+- **Supprimés en premier :** les évolutions optionnelles, puis les finitions visuelles, puis le déploiement en ligne.
 - **Jamais réduits :** les tests, le README, le créneau de préparation de la présentation et la répétition.
 
 ---
@@ -672,5 +740,14 @@ Documentation : [gitattributes](https://git-scm.com/docs/gitattributes), [Editor
 | PostgreSQL | 18 | aucune : image Docker |
 
 Éditeur : VS Code avec les extensions `golang.go`, `ms-dotnettools.csharp` et `EditorConfig.EditorConfig`, ou Visual Studio / Rider (EditorConfig pris en charge nativement).
+
+### 7.5 Développer l'API pendant que la pile tourne
+
+Le conteneur `api` publie le port 8080, qui est aussi l'adresse par défaut de `go run .` : les deux ne peuvent pas tourner en même temps. Deux façons de travailler :
+
+- itérations rapides : `docker compose stop api`, puis `go run .` dans `api/`. La base reste lancée ; l'interface du conteneur `web` affiche « API injoignable », car elle vise `http://api:8080` ;
+- vérification dans les conteneurs : `docker compose up -d --build api`.
+
+Une route nouvelle qui répond 404 signale presque toujours une image qui n'a pas encore été reconstruite.
 
 Documentation : [winget](https://learn.microsoft.com/windows/package-manager/winget/), [WSL](https://learn.microsoft.com/windows/wsl/install), [Go dans VS Code](https://code.visualstudio.com/docs/languages/go)

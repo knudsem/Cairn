@@ -34,6 +34,7 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 - Lancement complet en une commande avec Docker Compose.
 
 ### Bonus (seulement si tout l'obligatoire est terminé et testé)
+- Déploiement en ligne gratuit, avec un lien public en HTTPS, pour tester sans rien installer (Render et Neon, voir docs/PLAN.md, étape 11). Il passe avant les autres bonus, mais après les tests, le README et la préparation de la présentation.
 - Historique des mouvements de stock (qui, quoi, quand).
 - Alertes de stock bas.
 - Annulation de la validation d'une ligne, avec remise en stock.
@@ -41,7 +42,6 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 ### Hors périmètre
 - Authentification et gestion des utilisateurs : le nom du préparateur est simplement choisi dans l'interface.
 - Création ou modification de commandes depuis l'interface.
-- Déploiement en ligne.
 
 ## 4. Stack technique
 
