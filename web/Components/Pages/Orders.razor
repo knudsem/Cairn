@@ -1,0 +1,255 @@
+@page "/"
+@page "/orders/{OrderId:long}"
+@using Microsoft.JSInterop
+@inject CairnApiClient Api
+
+@* Écran des commandes (docs/PLAN.md, étapes 8 et 9). Deux adresses pour un
+   même composant : / (la liste) et /orders/{id} (la liste et une commande
+   ouverte). Blazor garde le composant d'une adresse à l'autre : la liste
+   reste chargée quand on ouvre une commande. Sur un écran large, la liste est
+   à gauche et la commande à droite ; sur un écran étroit, un seul des deux
+   volets s'affiche (Orders.razor.css). *@
+
+<PageTitle>Commandes - Cairn</PageTitle>
+
+<div class="orders-layout @(OrderId is null ? "show-list" : "show-detail")">
+    <section class="orders-list" aria-label="Liste des commandes">
+        <div class="orders-list-head">
+            @* Le titre principal (h1) est celui de l'écran affiché : la liste,
+               ou la commande ouverte. Entre / et /orders/5, Blazor garde ce
+               composant et ne déplace pas le focus lui-même : OnAfterRenderAsync
+               le place sur le titre (tabindex="-1" le rend focalisable). *@
+            @if (OrderId is null)
+            {
+                <h1 tabindex="-1" @ref="heading">Commandes</h1>
+            }
+            else
+            {
+                <h2 class="orders-list-title" tabindex="-1" @ref="heading">Commandes</h2>
+            }
+            <button type="button" class="button button-secondary" disabled="@loading" @onclick="RefreshAsync">Actualiser</button>
+        </div>
+
+        @* Deux filtres en onglets : « À préparer » (à préparer et en cours) et
+           « Prêtes ». Les nombres ne s'affichent qu'une fois la liste
+           chargée. Ce sont deux boutons à bascule (aria-pressed) : plus simple
+           que le modèle ARIA complet des onglets, qui demande la navigation
+           aux flèches. Le filtre choisi se voit à son soulignement et à son
+           texte en gras, pas seulement à sa couleur. *@
+        <div class="tabs" role="group" aria-label="Commandes à afficher">
+            <button type="button" class="tab" aria-pressed="@(showReady ? "false" : "true")"
+                    @onclick="() => showReady = false">À préparer@(CountText(ready: false))</button>
+            <button type="button" class="tab" aria-pressed="@(showReady ? "true" : "false")"
+                    @onclick="() => showReady = true">Prêtes@(CountText(ready: true))</button>
+        </div>
+
+        <div>
+            @if (loadError is not null)
+            {
+                <div class="alert-error" role="alert">
+                    <h2 class="alert-title">Impossible de charger les commandes</h2>
+                    <p>@loadError.UserMessage</p>
+                    <p>Si le problème continue, prévenez votre responsable.</p>
+                    <button type="button" class="button button-wide" @onclick="RetryAsync">Réessayer</button>
+                </div>
+            }
+            else if (orders is null)
+            {
+                <p class="loading" role="status">Chargement des commandes...</p>
+                <div class="order-cards" aria-hidden="true">
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        <div class="order-card order-skeleton">
+                            <span class="skeleton-line skeleton-short"></span>
+                            <span class="skeleton-line"></span>
+                            <span class="skeleton-line skeleton-medium"></span>
+                        </div>
+                    }
+                </div>
+            }
+            else if (!Visible.Any())
+            {
+                <p class="orders-none">@(showReady ? "Aucune commande prête pour l'instant." : "Aucune commande à préparer.")</p>
+            }
+            else
+            {
+                <div class="order-cards">
+                    @foreach (var order in Visible)
+                    {
+                        var current = order.Id == OrderId;
+                        @* Une carte est un lien : Blazor ouvre la commande sans
+                           recharger la page. aria-current signale la commande
+                           ouverte à un lecteur d'écran. *@
+                        <a class="order-card @(current ? "order-card-current" : null)" href="orders/@order.Id"
+                           aria-current="@(current ? "page" : null)">
+                            <span class="order-card-top">
+                                <span class="order-ref">@order.Reference</span>
+                                <StatusBadge Status="@order.Status" />
+                            </span>
+                            <span class="order-customer">@order.Customer</span>
+                            <span class="order-card-bottom">
+                                <span class="order-progress-text">@Format.Progress(order.PickedCount, order.LineCount)</span>
+                                <span class="order-created">@Format.Created(order.CreatedAt)</span>
+                            </span>
+                            @* La barre répète le texte d'avancement : décorative. *@
+                            <span class="progress progress-@Format.StatusClass(order.Status)" aria-hidden="true">
+                                <span style="width: @Format.Percent(order.PickedCount, order.LineCount)"></span>
+                            </span>
+                        </a>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="orders-detail">
+        @if (OrderId is null)
+        {
+            <div class="orders-placeholder">
+                <h2>Choisissez une commande</h2>
+                <p>Sélectionnez une commande dans la liste pour commencer.</p>
+            </div>
+        }
+        else
+        {
+            @* La commande ouverte (OrderDetail.razor). Elle prévient la liste à
+               chaque nouvel état (UpdateSummary), et reçoit la prochaine
+               commande à préparer pour « Commande suivante ». *@
+            <OrderDetail OrderId="@OrderId.Value"
+                         Reference="@(orders?.FirstOrDefault(o => o.Id == OrderId)?.Reference)"
+                         NextOrderId="@NextOrderId"
+                         OnOrderChanged="UpdateSummary" />
+        }
+    </section>
+</div>
+
+@code {
+    /// <summary>Commande ouverte, lue dans l'adresse (/orders/5) ; null sur /.</summary>
+    [Parameter]
+    public long? OrderId { get; set; }
+
+    // Liste des commandes : null tant qu'elle n'est pas chargée, ou si le
+    // dernier chargement a échoué (loadError dit alors pourquoi).
+    private List<OrderSummary>? orders;
+    private ApiError? loadError;
+    private bool loading;
+
+    // Onglet affiché : « Prêtes » si vrai, « À préparer » sinon.
+    private bool showReady;
+
+    // Titre principal, et focus à y placer au prochain rendu : à chaque
+    // changement de commande ouverte, et après un « Réessayer » réussi.
+    private ElementReference heading;
+    private bool focusHeading;
+    private long? shownOrderId;
+    private bool initialized;
+
+    // Commandes de l'onglet affiché, dans l'ordre de l'API (la plus ancienne
+    // en premier).
+    private IEnumerable<OrderSummary> Visible =>
+        (orders ?? []).Where(o => (o.Status == OrderStatus.Ready) == showReady);
+
+    // « (5) » après le nom d'un onglet, seulement une fois la liste chargée.
+    private string CountText(bool ready) =>
+        orders is null ? "" : $" ({orders.Count(o => (o.Status == OrderStatus.Ready) == ready)})";
+
+    // Prochaine commande à préparer : la plus ancienne qui n'est pas prête,
+    // hors commande ouverte.
+    private long? NextOrderId =>
+        orders?.FirstOrDefault(o => o.Status != OrderStatus.Ready && o.Id != OrderId)?.Id;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    // Nouvel état de la commande ouverte (chargement ou validation) : sa
+    // carte suit, sans recharger toute la liste. with copie le record en
+    // changeant les champs nommés.
+    private void UpdateSummary(Order order)
+    {
+        var index = orders?.FindIndex(o => o.Id == order.Id) ?? -1;
+        if (orders is not null && index >= 0)
+        {
+            orders[index] = orders[index] with
+            {
+                Status = order.Status,
+                LineCount = order.Lines.Count,
+                PickedCount = order.PickedCount,
+            };
+        }
+    }
+
+    // Appelée à chaque changement d'adresse entre / et /orders/5 : au retour à
+    // la liste, le focus va sur son titre, sauf au premier affichage (Blazor
+    // s'en charge alors, Routes.razor).
+    protected override void OnParametersSet()
+    {
+        // Une commande ouverte place elle-même le focus sur son titre
+        // (OrderDetail.razor) ; ici, seulement au retour à la liste.
+        if (initialized && OrderId != shownOrderId && OrderId is null)
+        {
+            focusHeading = true;
+        }
+        shownOrderId = OrderId;
+        initialized = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusHeading)
+        {
+            return;
+        }
+        focusHeading = false;
+        try
+        {
+            await heading.FocusAsync();
+        }
+        catch (JSException)
+        {
+            // Un rendu suivant a pu retirer le titre entre-temps.
+        }
+    }
+
+    // Charge la liste. Pendant un rechargement (« Actualiser »), l'ancienne
+    // liste reste affichée : pas de clignotement.
+    private async Task LoadAsync()
+    {
+        loading = true;
+        loadError = null;
+        var result = await Api.GetOrdersAsync();
+        if (result.IsSuccess)
+        {
+            orders = result.Value.ToList();
+        }
+        else
+        {
+            orders = null;
+            loadError = result.Error;
+        }
+        loading = false;
+    }
+
+    private async Task RefreshAsync()
+    {
+        // Un second appui pendant un chargement est ignoré.
+        if (loading)
+        {
+            return;
+        }
+        await LoadAsync();
+    }
+
+    private async Task RetryAsync()
+    {
+        if (loading)
+        {
+            return;
+        }
+        orders = null;
+        await LoadAsync();
+        // Le bouton « Réessayer » a disparu : le focus va sur le titre.
+        focusHeading = true;
+    }
+}

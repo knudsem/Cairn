@@ -1,0 +1,53 @@
+# Déploiement de Cairn sur Render (docs/PLAN.md, étape 11) : deux services web
+# Docker, offre gratuite, région Francfort. La base est sur Neon.
+#
+# Aucun secret ici : sync: false fait demander la valeur dans le tableau de
+# bord de Render, à la création du Blueprint.
+services:
+  # API Go. Elle écoute sur le port 8080 (API_ADDR, dans api/Dockerfile) ;
+  # PORT dit à Render où envoyer le trafic (10000 par défaut).
+  - type: web
+    # Nom distinctif : il donne l'adresse https://cairn-knudsem-api.onrender.com.
+    # « cairn-api » est déjà pris sur onrender.com par le service d'un tiers.
+    name: cairn-knudsem-api
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: ./api
+    # Ne reconstruit l'API que si un fichier de api/ change.
+    buildFilter:
+      paths:
+        - api/**
+    envVars:
+      - key: PORT
+        value: "8080"
+      # Chaîne de connexion directe de Neon, avec sslmode=require et
+      # channel_binding=require. Elle contient le mot de passe.
+      - key: DATABASE_URL
+        sync: false
+
+  # Interface Blazor. Elle appelle l'API par son adresse publique HTTPS : un
+  # service gratuit ne reçoit pas de trafic du réseau privé de Render.
+  - type: web
+    name: cairn-knudsem-web
+    runtime: docker
+    plan: free
+    region: frankfurt
+    dockerfilePath: ./web/Dockerfile
+    dockerContext: ./web
+    buildFilter:
+      paths:
+        - web/**
+    envVars:
+      - key: PORT
+        value: "8080"
+      # Adresse publique de l'API, avec la barre oblique finale, par exemple
+      # https://cairn-knudsem-api.onrender.com/ (à contrôler dans le tableau de
+      # bord : Render ajoute un suffixe si le nom est pris). Toujours en https :
+      # une redirection depuis http transformerait un POST en GET.
+      - key: ApiBaseUrl
+        sync: false
+      # Plus que le réveil de l'API endormie (environ une minute).
+      - key: ApiTimeoutSeconds
+        value: "90"

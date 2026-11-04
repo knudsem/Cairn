@@ -1,0 +1,290 @@
+/* Préparation d'une commande. Emplacement et quantité de la prochaine ligne
+   en très grand (--font-size-display), lisibles à un mètre. Les tailles
+   viennent des variables d'app.css (souris ou toucher). */
+
+.back-link {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 1.25rem;
+    text-decoration: none;
+}
+
+/* Écran large : la liste est à gauche, le retour est inutile. */
+@media (min-width: 64rem) {
+    .back-link {
+        display: none;
+    }
+}
+
+.order-head {
+    margin-bottom: 1.5rem;
+}
+
+.order-head-title {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.order-title {
+    margin: 0;
+    font-size: var(--font-size-h1);
+    line-height: 1.2;
+}
+
+.order-head-sub {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+    margin: 0.375rem 0 0.75rem;
+}
+
+.order-customer {
+    font-weight: 600;
+}
+
+.order-progress-text {
+    font-weight: 700;
+}
+
+/* Une ligne à préparer : carte blanche. La prochaine est encadrée d'ocre,
+   avec ses chiffres en très grand. */
+.line-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding: 1.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-white);
+}
+
+.line-next {
+    gap: 1rem;
+    padding: 1.5rem;
+    border: 3px solid var(--color-ochre);
+    box-shadow: var(--shadow-panel);
+}
+
+/* Étiquette « Prochaine ligne » : bleu nuit sur ocre (6,3:1). */
+.next-pill {
+    align-self: flex-start;
+    padding: 0.25rem 0.875rem;
+    border-radius: 999px;
+    background: var(--color-ochre);
+    color: var(--color-navy);
+    font-weight: 700;
+}
+
+.line-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 1rem;
+}
+
+.line-figure {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.line-figure-qty {
+    align-items: flex-end;
+    text-align: right;
+}
+
+.line-label {
+    color: var(--color-muted);
+    font-size: var(--font-size-small);
+    font-weight: 600;
+}
+
+.line-location,
+.line-qty {
+    font-size: calc(var(--font-size-h1) * 1.15);
+    font-weight: 800;
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+.line-next .line-location,
+.line-next .line-qty {
+    font-size: var(--font-size-display);
+    letter-spacing: -0.02em;
+}
+
+.line-product {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0.25rem 1rem;
+}
+
+.line-product-name {
+    font-weight: 700;
+}
+
+.line-meta {
+    color: var(--color-muted);
+}
+
+/* Erreur sur une ligne (stock insuffisant...) : icône, titre et détail. */
+.line-error {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.875rem 1rem;
+    border: 2px solid var(--color-error);
+    border-radius: var(--radius);
+    background: var(--color-error-light);
+    color: var(--color-error);
+}
+
+.line-error strong {
+    display: block;
+}
+
+.line-error-detail {
+    display: block;
+}
+
+/* Bouton « Préparé » des lignes suivantes : à droite sur un écran assez
+   large, sur toute la largeur sur téléphone. */
+.line-button {
+    align-self: flex-end;
+    min-width: 10rem;
+}
+
+@media (max-width: 30rem) {
+    .line-button {
+        align-self: stretch;
+    }
+}
+
+/* Bandeaux après une validation. */
+.banner-success,
+.banner-info {
+    margin: 0 0 1.25rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    font-weight: 700;
+}
+
+.banner-success {
+    background: #E6F2EA;
+    color: var(--color-ok);
+}
+
+.banner-info {
+    background: var(--color-white);
+    border: 1px solid var(--color-border-strong);
+}
+
+.ready-banner {
+    margin-bottom: 1rem;
+    padding: 1rem 1.25rem;
+    border-radius: var(--radius);
+    background: var(--color-ok);
+    color: var(--color-white);
+    font-size: var(--font-size-h1);
+    font-weight: 800;
+    text-align: center;
+}
+
+.banner-success:focus,
+.ready-banner:focus {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.ready-actions {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1.75rem;
+}
+
+.ready-actions .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+}
+
+/* Lignes déjà préparées : cartes discrètes, sur deux colonnes si la place
+   le permet. */
+.done-title {
+    margin: 1.75rem 0 0.75rem;
+    font-size: var(--font-size-h2);
+}
+
+.done-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: 0.75rem;
+}
+
+.done-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    padding: 1rem 1.125rem;
+    border-radius: var(--radius);
+    background: var(--color-hover-light);
+    border: 1px solid var(--color-border);
+}
+
+.done-top {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    font-weight: 800;
+}
+
+.done-location {
+    font-size: calc(var(--font-size-base) * 1.2);
+}
+
+.done-product {
+    color: var(--color-muted);
+}
+
+.done-by {
+    color: var(--color-ok);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+/* Chargement : une carte vide qui pulse. */
+.line-skeleton {
+    animation: detail-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-block {
+    display: block;
+    width: 40%;
+    height: 3rem;
+    border-radius: 0.375rem;
+    background: var(--color-skeleton);
+}
+
+.skeleton-wide {
+    width: 100%;
+    height: var(--control-height);
+}
+
+@keyframes detail-pulse {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .line-skeleton {
+        animation: none;
+    }
+}

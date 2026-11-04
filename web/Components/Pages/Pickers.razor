@@ -9,99 +9,101 @@
    même adresse : la grille des profils, et le formulaire « Nouveau profil »,
    qui la remplace dans le panneau. *@
 
-<div class="panel">
-    @if (!adding)
-    {
-        <PageTitle>Qui prépare ? - Cairn</PageTitle>
-
-        <div class="picker-head">
-            <h1>Qui prépare ?</h1>
-            <p class="lead">Choisissez votre nom avant d'ouvrir une commande.</p>
-        </div>
-
-        @if (loadError is not null)
+<div class="page">
+    <div class="panel">
+        @if (!adding)
         {
-            @* role="alert" : un lecteur d'écran annonce l'erreur dès qu'elle apparaît. *@
-            <div class="alert-error" role="alert">
-                <h2 class="alert-title">Impossible de charger les profils</h2>
-                <p>@loadError.UserMessage</p>
-                <p>Si le problème continue, prévenez votre responsable.</p>
-                <button type="button" class="button button-wide" @onclick="RetryAsync">Réessayer</button>
+            <PageTitle>Qui prépare ? - Cairn</PageTitle>
+
+            <div class="picker-head">
+                <h1>Qui prépare ?</h1>
+                <p class="lead">Choisissez votre nom avant d'ouvrir une commande.</p>
             </div>
-        }
-        else if (pickers is null)
-        {
-            <p class="loading picker-status" role="status">Chargement des profils...</p>
-            @* Emplacements des futures cartes, décoratifs : cachés aux lecteurs d'écran. *@
-            <div class="picker-grid" aria-hidden="true">
-                @for (var i = 0; i < 3; i++)
+
+            @if (loadError is not null)
+            {
+                @* role="alert" : un lecteur d'écran annonce l'erreur dès qu'elle apparaît. *@
+                <div class="alert-error" role="alert">
+                    <h2 class="alert-title">Impossible de charger les profils</h2>
+                    <p>@loadError.UserMessage</p>
+                    <p>Si le problème continue, prévenez votre responsable.</p>
+                    <button type="button" class="button button-wide" @onclick="RetryAsync">Réessayer</button>
+                </div>
+            }
+            else if (pickers is null)
+            {
+                <p class="loading picker-status" role="status">Chargement des profils...</p>
+                @* Emplacements des futures cartes, décoratifs : cachés aux lecteurs d'écran. *@
+                <div class="picker-grid" aria-hidden="true">
+                    @for (var i = 0; i < 3; i++)
+                    {
+                        <div class="picker-card picker-skeleton">
+                            <span class="picker-avatar"></span>
+                            <span class="picker-skeleton-line"></span>
+                        </div>
+                    }
+                </div>
+            }
+            else
+            {
+                @if (pickers.Count == 0)
                 {
-                    <div class="picker-card picker-skeleton">
-                        <span class="picker-avatar"></span>
-                        <span class="picker-skeleton-line"></span>
-                    </div>
+                    <p class="picker-status">Aucun profil pour l'instant : ajoutez le vôtre.</p>
                 }
-            </div>
+                <div class="picker-grid">
+                    @foreach (var picker in pickers)
+                    {
+                        @* La pastille est décorative (aria-hidden) : le nom suffit à
+                           un lecteur d'écran. dir="auto" isole le nom : un nom écrit
+                           de droite à gauche s'affiche dans son sens. *@
+                        <button type="button" class="picker-card" @onclick="() => Choose(picker)">
+                            <span class="picker-avatar" aria-hidden="true">@picker.Initial</span>
+                            <span class="picker-name" dir="auto">@picker.Name</span>
+                        </button>
+                    }
+                    <button type="button" class="picker-card picker-card-add" @ref="addButton" @onclick="StartAdding">
+                        <span class="picker-avatar" aria-hidden="true">+</span>
+                        <span class="picker-name">Ajouter un profil</span>
+                    </button>
+                </div>
+            }
         }
         else
         {
-            @if (pickers.Count == 0)
-            {
-                <p class="picker-status">Aucun profil pour l'instant : ajoutez le vôtre.</p>
-            }
-            <div class="picker-grid">
-                @foreach (var picker in pickers)
+            <PageTitle>Nouveau profil - Cairn</PageTitle>
+
+            <div class="picker-head">
+                <h1>Nouveau profil</h1>
+                <p class="lead">Votre nom, tel qu'il apparaîtra sur les lignes préparées.</p>
+            </div>
+
+            @* @onsubmit:preventDefault : le navigateur n'envoie pas le formulaire
+               lui-même, ce qui rechargerait la page ; CreateAsync s'en charge. La
+               touche Entrée dans le champ envoie aussi le formulaire. *@
+            <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+                <label class="field-label" for="picker-name">Nom du profil</label>
+                @* @bind:event="oninput" : newName suit chaque frappe, et non la
+                   sortie du champ ; aria-invalid et aria-describedby relient le
+                   message d'erreur au champ, pour un lecteur d'écran. *@
+                <input id="picker-name" class="field-input" @ref="nameInput"
+                       @bind="newName" @bind:event="oninput"
+                       autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done"
+                       aria-invalid="@(formError is null ? "false" : "true")"
+                       aria-describedby="@(formError is null ? null : "picker-name-error")" />
+                @if (formError is not null)
                 {
-                    @* La pastille est décorative (aria-hidden) : le nom suffit à
-                       un lecteur d'écran. dir="auto" isole le nom : un nom écrit
-                       de droite à gauche s'affiche dans son sens. *@
-                    <button type="button" class="picker-card" @onclick="() => Choose(picker)">
-                        <span class="picker-avatar" aria-hidden="true">@picker.Initial</span>
-                        <span class="picker-name" dir="auto">@picker.Name</span>
-                    </button>
+                    <p id="picker-name-error" class="field-error" role="alert">
+                        <span class="field-error-icon" aria-hidden="true">!</span>
+                        <span>@formError</span>
+                    </p>
                 }
-                <button type="button" class="picker-card picker-card-add" @ref="addButton" @onclick="StartAdding">
-                    <span class="picker-avatar" aria-hidden="true">+</span>
-                    <span class="picker-name">Ajouter un profil</span>
-                </button>
-            </div>
+                <div class="form-actions">
+                    <button type="submit" class="button" disabled="@creating">@(creating ? "Création..." : "Créer")</button>
+                    <button type="button" class="button button-secondary" disabled="@creating" @onclick="CancelAsync">Annuler</button>
+                </div>
+            </form>
         }
-    }
-    else
-    {
-        <PageTitle>Nouveau profil - Cairn</PageTitle>
-
-        <div class="picker-head">
-            <h1>Nouveau profil</h1>
-            <p class="lead">Votre nom, tel qu'il apparaîtra sur les lignes préparées.</p>
-        </div>
-
-        @* @onsubmit:preventDefault : le navigateur n'envoie pas le formulaire
-           lui-même, ce qui rechargerait la page ; CreateAsync s'en charge. La
-           touche Entrée dans le champ envoie aussi le formulaire. *@
-        <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
-            <label class="field-label" for="picker-name">Nom du profil</label>
-            @* @bind:event="oninput" : newName suit chaque frappe, et non la
-               sortie du champ ; aria-invalid et aria-describedby relient le
-               message d'erreur au champ, pour un lecteur d'écran. *@
-            <input id="picker-name" class="field-input" @ref="nameInput"
-                   @bind="newName" @bind:event="oninput"
-                   autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done"
-                   aria-invalid="@(formError is null ? "false" : "true")"
-                   aria-describedby="@(formError is null ? null : "picker-name-error")" />
-            @if (formError is not null)
-            {
-                <p id="picker-name-error" class="field-error" role="alert">
-                    <span class="field-error-icon" aria-hidden="true">!</span>
-                    <span>@formError</span>
-                </p>
-            }
-            <div class="form-actions">
-                <button type="submit" class="button" disabled="@creating">@(creating ? "Création..." : "Créer")</button>
-                <button type="button" class="button button-secondary" disabled="@creating" @onclick="CancelAsync">Annuler</button>
-            </div>
-        </form>
-    }
+    </div>
 </div>
 
 @code {

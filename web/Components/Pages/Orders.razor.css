@@ -1,0 +1,238 @@
+/* Écran des commandes. Écran large : la liste à gauche, la commande à droite.
+   Écran étroit : un seul des deux volets, selon l'adresse. Les tailles
+   viennent des variables d'app.css (souris ou toucher). */
+
+.orders-layout {
+    display: grid;
+}
+
+.orders-list {
+    padding: 1.5rem 2rem;
+}
+
+.orders-list-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.orders-list-head h1,
+.orders-list-title {
+    margin: 0;
+    font-size: var(--font-size-h1);
+    line-height: 1.2;
+}
+
+/* Onglets : l'onglet choisi est souligné d'ocre et en gras. */
+.tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+    min-height: var(--control-height);
+    margin-bottom: -1px;
+    padding: 0 0.5rem;
+    border: 0;
+    border-bottom: 3px solid transparent;
+    background: none;
+    color: var(--color-muted);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.tab[aria-pressed="true"] {
+    border-bottom-color: var(--color-ochre);
+    color: var(--color-navy);
+    font-weight: 700;
+}
+
+.tab:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: -3px;
+}
+
+.order-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* Une commande : référence et statut, client, avancement et heure de
+   création, barre d'avancement. */
+.order-card {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    padding: 1rem 1.125rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-white);
+    color: var(--color-navy);
+    text-decoration: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.order-card:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+/* Commande ouverte : bordure bleu nuit et barre à gauche. */
+.order-card-current {
+    border-color: var(--color-navy);
+    box-shadow: inset 5px 0 0 var(--color-navy);
+}
+
+@media (hover: hover) {
+    .order-card:hover {
+        border-color: var(--color-ochre);
+        box-shadow: var(--shadow-hover);
+    }
+
+    .order-card-current:hover {
+        box-shadow: inset 5px 0 0 var(--color-navy), var(--shadow-hover);
+    }
+}
+
+.order-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.order-ref {
+    font-weight: 700;
+    font-size: calc(var(--font-size-base) * 1.1);
+}
+
+.order-card-bottom {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 0 0.75rem;
+    font-size: var(--font-size-small);
+}
+
+.order-progress-text {
+    font-weight: 600;
+}
+
+.order-created {
+    color: var(--color-muted);
+}
+
+.order-card .progress {
+    margin-top: 0.25rem;
+}
+
+.orders-none {
+    padding: 1.5rem 0;
+    color: var(--color-muted);
+    text-align: center;
+}
+
+/* Cartes vides pendant le chargement. */
+.order-skeleton {
+    gap: 0.625rem;
+    animation: orders-pulse 1.6s ease-in-out infinite;
+}
+
+.skeleton-line {
+    display: block;
+    width: 80%;
+    height: 0.875rem;
+    border-radius: 0.25rem;
+    background: var(--color-skeleton);
+}
+
+.skeleton-short {
+    width: 35%;
+}
+
+.skeleton-medium {
+    width: 60%;
+}
+
+@keyframes orders-pulse {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .order-skeleton {
+        animation: none;
+    }
+}
+
+.orders-detail {
+    padding: 1.5rem 2rem 3rem;
+}
+
+.orders-placeholder h2 {
+    margin: 0 0 0.5rem;
+    font-size: var(--font-size-h2);
+}
+
+.orders-placeholder p {
+    margin: 0;
+    color: var(--color-muted);
+}
+
+/* Écran large (au moins 1024 px) : les deux volets côte à côte. La liste,
+   sur fond blanc, défile seule ; la commande reste en face. */
+@media (min-width: 64rem) {
+    .orders-layout {
+        grid-template-columns: 24rem 1fr;
+        align-items: start;
+    }
+
+    .orders-list {
+        position: sticky;
+        top: var(--header-height);
+        height: calc(100dvh - var(--header-height));
+        overflow-y: auto;
+        padding: 1.5rem;
+        border-right: 1px solid var(--color-border);
+        background: var(--color-white);
+    }
+
+    .orders-detail {
+        max-width: 64rem;
+        padding: 2rem 2.5rem 3rem;
+    }
+
+}
+
+/* Écran étroit : un seul volet, centré. */
+@media (max-width: 63.99rem) {
+    .show-list .orders-detail,
+    .show-detail .orders-list {
+        display: none;
+    }
+
+    .orders-list,
+    .orders-detail {
+        width: 100%;
+        max-width: 48rem;
+        margin: 0 auto;
+    }
+
+    .orders-placeholder {
+        display: none;
+    }
+}
+
+@media (max-width: 30rem) {
+    .orders-list,
+    .orders-detail {
+        padding: 1rem 0.75rem 2rem;
+    }
+}

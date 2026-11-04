@@ -1,0 +1,24 @@
+@* Pastille de statut d'une commande : une couleur et toujours un libellé,
+   jamais la couleur seule. « Prête » ajoute une coche, cachée aux lecteurs
+   d'écran (le mot suffit). Un statut inconnu s'affiche tel quel. *@
+<span class="badge badge-@Format.StatusClass(Status)">
+    @if (Status == OrderStatus.Ready)
+    {
+        <span aria-hidden="true">✓ </span>
+    }
+    @Label
+</span>
+
+@code {
+    /// <summary>Statut de l'API : a_preparer, en_cours ou prete.</summary>
+    [Parameter, EditorRequired]
+    public string Status { get; set; } = "";
+
+    private string Label => Status switch
+    {
+        OrderStatus.ToPrepare => "À préparer",
+        OrderStatus.InProgress => "En cours",
+        OrderStatus.Ready => "Prête",
+        _ => Status,
+    };
+}

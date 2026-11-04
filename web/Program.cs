@@ -14,11 +14,15 @@ builder.Services.AddRazorComponents()
 // formée arrête l'application avec un message clair, au lieu d'une page blanche.
 var apiBaseUrl = new Uri(builder.Configuration["ApiBaseUrl"]
     ?? throw new InvalidOperationException("La configuration ApiBaseUrl est manquante."));
+// Délai maximal d'un appel à l'API : 5 secondes par défaut, car le délai de
+// HttpClient (100 secondes) est bien trop long sur une tablette. En ligne
+// (Render, docs/PLAN.md étape 11), ApiTimeoutSeconds vaut 90 : une API
+// endormie met environ une minute à se réveiller, et l'appel doit l'attendre.
+var apiTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiTimeoutSeconds", 5));
 builder.Services.AddHttpClient<CairnApiClient>(client =>
 {
     client.BaseAddress = apiBaseUrl;
-    // Le délai par défaut est de 100 secondes : bien trop long sur une tablette.
-    client.Timeout = TimeSpan.FromSeconds(5);
+    client.Timeout = apiTimeout;
 });
 
 // Profil du préparateur choisi. « Scoped » : une instance par circuit Blazor,
@@ -26,6 +30,14 @@ builder.Services.AddHttpClient<CairnApiClient>(client =>
 builder.Services.AddScoped<PickerState>();
 
 var app = builder.Build();
+
+// Au démarrage de l'interface, un appel à /health réveille l'API en même
+// temps qu'elle : sur Render, les deux services s'endorment ensemble, et le
+// premier préparateur attend ainsi un seul réveil au lieu de deux à la suite.
+// L'appel part en arrière-plan (« _ = ») : le démarrage ne l'attend pas, et
+// GetHealthAsync ne lève pas d'exception.
+app.Lifetime.ApplicationStarted.Register(() =>
+    _ = app.Services.GetRequiredService<CairnApiClient>().GetHealthAsync());
 
 // Traitement des requêtes HTTP : page d'erreur hors développement, page 404,
 // protection antifalsification, fichiers statiques, puis composants Razor.

@@ -19,6 +19,13 @@
     display: block;
 }
 
+/* Pendant les nouveaux essais, le premier message (« Reconnexion en
+   cours... ») laisse la place au second : sans cette règle, Blazor garde les
+   deux classes, et les deux messages s'affichent ensemble. */
+#components-reconnect-modal.components-reconnect-retrying .components-reconnect-first-attempt-visible {
+    display: none;
+}
+
 
 #components-reconnect-modal {
     background-color: white;

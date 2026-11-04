@@ -1,0 +1,393 @@
+@using Microsoft.JSInterop
+@inject CairnApiClient Api
+@inject PickerState PickerState
+
+@* Préparation d'une commande (docs/PLAN.md, étape 9) : la prochaine ligne mise
+   en avant, les autres lignes à préparer, puis les lignes déjà préparées.
+   Affiché par Orders.razor, à droite de la liste sur un écran large, à sa
+   place sur un écran étroit. *@
+
+<a class="button button-secondary back-link" href="./">← Commandes</a>
+
+@{
+    var ready = order?.Status == OrderStatus.Ready;
+}
+
+@* Messages après une validation. role="status" : un lecteur d'écran les
+   annonce ; tabindex="-1" permet d'y placer le focus. *@
+@if (order is not null && ready)
+{
+    <div class="ready-banner" role="status" tabindex="-1" @ref="banner">✓ Commande prête</div>
+    <div class="ready-actions">
+        @if (NextOrderId is { } next)
+        {
+            <a class="button" href="orders/@next">Commande suivante</a>
+        }
+        <a class="button button-secondary" href="./">Retour aux commandes</a>
+    </div>
+}
+else if (success is not null)
+{
+    <p class="banner-success" role="status" tabindex="-1" @ref="banner">✓ @success</p>
+}
+@if (info is not null)
+{
+    <p class="banner-info" role="status" tabindex="-1" @ref="infoBanner">@info</p>
+}
+
+@* En-tête. Le titre (h1) est écrit une seule fois, hors des conditions : il
+   reste le même élément pendant le chargement puis après, et garde donc le
+   focus que OnAfterRenderAsync y place à l'ouverture d'une commande. *@
+<div class="order-head">
+    <div class="order-head-title">
+        <h1 class="order-title" tabindex="-1" @ref="title">@(order?.Reference ?? Reference ?? "Commande")</h1>
+        @if (order is not null)
+        {
+            <StatusBadge Status="@order.Status" />
+        }
+    </div>
+    @if (order is not null)
+    {
+        <div class="order-head-sub">
+            <span class="order-customer">@order.Customer</span>
+            <span class="order-progress-text">@Format.Progress(order.PickedCount, order.Lines.Count)</span>
+        </div>
+        <span class="progress progress-@Format.StatusClass(order.Status)" aria-hidden="true">
+            <span style="width: @Format.Percent(order.PickedCount, order.Lines.Count)"></span>
+        </span>
+    }
+</div>
+
+@if (order is null)
+{
+    @if (loadError is not null)
+    {
+        <div class="alert-error" role="alert">
+            <h2 class="alert-title">Impossible de charger la commande</h2>
+            <p>@loadError.UserMessage</p>
+            @if (loadError.Code != "commande_introuvable")
+            {
+                <p>Si le problème continue, prévenez votre responsable.</p>
+                <button type="button" class="button button-wide" @onclick="RetryLoadAsync">Réessayer</button>
+            }
+        </div>
+    }
+    else
+    {
+        <p class="loading" role="status">Chargement de la commande...</p>
+        <div class="line-card line-next line-skeleton" aria-hidden="true">
+            <span class="skeleton-block"></span>
+            <span class="skeleton-block skeleton-wide"></span>
+        </div>
+    }
+}
+else
+{
+    var toPick = order.Lines.Where(l => !l.IsPicked).ToList();
+    var picked = order.Lines.Where(l => l.IsPicked).ToList();
+
+    @for (var i = 0; i < toPick.Count; i++)
+    {
+        var line = toPick[i];
+        var isNext = i == 0;
+        var hasError = errorLineId == line.Id;
+        <article class="line-card @(isNext ? "line-next" : null)" aria-label="@($"Ligne {line.Location}, {line.Quantity} {line.ProductName}")">
+            @if (isNext)
+            {
+                <span class="next-pill">Prochaine ligne</span>
+            }
+            <div class="line-main">
+                <div class="line-figure">
+                    <span class="line-label">Emplacement</span>
+                    <span class="line-location">@line.Location</span>
+                </div>
+                <div class="line-figure line-figure-qty">
+                    <span class="line-label">Quantité</span>
+                    <span class="line-qty">@line.Quantity</span>
+                </div>
+            </div>
+            <div class="line-product">
+                <span class="line-product-name">@line.ProductName</span>
+                <span class="line-meta">@line.Sku · En stock : @line.StockQty</span>
+            </div>
+            @if (hasError)
+            {
+                <div class="line-error" role="alert">
+                    <span class="field-error-icon" aria-hidden="true">!</span>
+                    <span>
+                        <strong>@errorTitle</strong>
+                        <span class="line-error-detail">@errorDetail</span>
+                    </span>
+                </div>
+            }
+            <button type="button" class="button @(isNext ? "button-wide" : "button-secondary line-button")"
+                    disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
+                @(pickingLineId == line.Id ? "Validation..." : hasError ? "Réessayer" : "Préparé")
+            </button>
+        </article>
+    }
+
+    @if (picked.Count > 0)
+    {
+        <h2 class="done-title">Déjà préparées (@picked.Count)</h2>
+        <div class="done-grid">
+            @foreach (var line in picked)
+            {
+                <article class="done-card">
+                    <div class="done-top">
+                        <span class="done-location">@line.Location</span>
+                        <span class="done-qty">×@line.Quantity</span>
+                    </div>
+                    <span class="done-product">@line.ProductName</span>
+                    @* <bdi> isole le nom : un nom écrit de droite à gauche ne
+                       mélange pas l'ordre des mots de la phrase. *@
+                    <span class="done-by">
+                        <span aria-hidden="true">✓</span>
+                        Préparé par <bdi>@line.PickedBy</bdi>@(line.PickedAt is { } at ? $" à {Format.Time(at)}" : "")
+                    </span>
+                </article>
+            }
+        </div>
+    }
+}
+
+@code {
+    /// <summary>Commande à afficher.</summary>
+    [Parameter, EditorRequired]
+    public long OrderId { get; set; }
+
+    /// <summary>Référence connue par la liste, affichée pendant le chargement.</summary>
+    [Parameter]
+    public string? Reference { get; set; }
+
+    /// <summary>
+    /// Prochaine commande à préparer (bouton « Commande suivante »), ou null
+    /// s'il n'y en a plus.
+    /// </summary>
+    [Parameter]
+    public long? NextOrderId { get; set; }
+
+    /// <summary>
+    /// Appelé à chaque nouvel état de la commande (chargement, validation) :
+    /// la liste met à jour son statut et son avancement.
+    /// </summary>
+    [Parameter]
+    public EventCallback<Order> OnOrderChanged { get; set; }
+
+    // Commande affichée : null pendant le premier chargement, ou s'il a échoué.
+    private Order? order;
+    private ApiError? loadError;
+    private long? loadedId;
+
+    // Validation en cours (identifiant de la ligne), et message après coup.
+    private long? pickingLineId;
+    private string? success;
+    private string? info;
+    private long? errorLineId;
+    private string? errorTitle;
+    private string? errorDetail;
+
+    // Garde contre le double appui : avec des gants, le second appui d'un
+    // double appui tomberait sur le bouton « Préparé » de la ligne suivante,
+    // qui vient de prendre la place du précédent. Tout appui avant cet
+    // instant est ignoré.
+    private DateTime ignorePicksUntil;
+    private static readonly TimeSpan DoubleTapDelay = TimeSpan.FromMilliseconds(700);
+
+    // Focus à placer au prochain rendu : sur le titre à l'ouverture d'une
+    // commande (Blazor ne le fait pas, le composant étant gardé d'une
+    // commande à l'autre), sur le bandeau après une validation.
+    private ElementReference title;
+    private ElementReference banner;
+    private ElementReference infoBanner;
+    private bool focusTitle;
+    private bool focusBanner;
+    private bool focusInfo;
+
+    // Le composant est gardé quand l'adresse passe d'une commande à une
+    // autre : seul OrderId change. La commande est alors rechargée, et les
+    // messages de la précédente effacés.
+    protected override async Task OnParametersSetAsync()
+    {
+        if (OrderId == loadedId)
+        {
+            return;
+        }
+        loadedId = OrderId;
+        order = null;
+        loadError = null;
+        pickingLineId = null;
+        success = null;
+        info = null;
+        ClearLineError();
+        focusTitle = true;
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!focusTitle && !focusBanner && !focusInfo)
+        {
+            return;
+        }
+        var target = focusBanner ? banner : focusInfo ? infoBanner : title;
+        focusTitle = false;
+        focusBanner = false;
+        focusInfo = false;
+        try
+        {
+            await target.FocusAsync();
+        }
+        catch (JSException)
+        {
+            // Un rendu suivant a pu retirer le bandeau entre-temps.
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        var id = OrderId;
+        var result = await Api.GetOrderAsync(id);
+        // Pendant l'appel, le préparateur a pu ouvrir une autre commande :
+        // la réponse, devenue inutile, est ignorée.
+        if (id != OrderId)
+        {
+            return;
+        }
+        if (result.IsSuccess)
+        {
+            await ShowAsync(result.Value);
+            // La commande vient d'apparaître : un double appui sur la carte
+            // ou sur « Commande suivante » ne doit pas valider sa première ligne.
+            ignorePicksUntil = DateTime.UtcNow + DoubleTapDelay;
+        }
+        else
+        {
+            loadError = result.Error;
+        }
+    }
+
+    private async Task RetryLoadAsync()
+    {
+        loadError = null;
+        await LoadAsync();
+    }
+
+    // Affiche le nouvel état de la commande et le transmet à la liste.
+    private async Task ShowAsync(Order value)
+    {
+        order = value;
+        await OnOrderChanged.InvokeAsync(value);
+    }
+
+    private async Task PickAsync(OrderLine line)
+    {
+        // Un appui pendant une validation, ou juste après (double appui), est
+        // ignoré : le bouton désactivé à l'écran peut ne pas l'être encore.
+        if (pickingLineId is not null || DateTime.UtcNow < ignorePicksUntil || PickerState.Current is not { } picker)
+        {
+            return;
+        }
+        var id = OrderId;
+        pickingLineId = line.Id;
+        // Les bandeaux restent affichés pendant l'appel : les effacer tout de
+        // suite ferait sauter la page.
+        ClearLineError();
+
+        var result = await Api.PickLineAsync(id, line.Id, picker.Name);
+        if (id != OrderId)
+        {
+            // Une autre commande a été ouverte pendant l'appel : elle ne
+            // s'affiche pas, mais la liste suit quand même la validation.
+            if (result.IsSuccess)
+            {
+                await OnOrderChanged.InvokeAsync(result.Value);
+            }
+            return;
+        }
+        info = null;
+        if (result.IsSuccess)
+        {
+            await ShowAsync(result.Value);
+            Done($"Ligne préparée : {line.Location}");
+            return;
+        }
+        success = null;
+
+        // Toute autre réponse que 200 : la validation a pu être enregistrée
+        // quand même (délai dépassé, erreur après l'enregistrement). La
+        // commande est relue, et c'est elle qui décide du message.
+        var error = result.Error;
+        var reload = await Api.GetOrderAsync(id);
+        if (id != OrderId)
+        {
+            if (reload.IsSuccess)
+            {
+                await OnOrderChanged.InvokeAsync(reload.Value);
+            }
+            return;
+        }
+        if (reload.IsSuccess)
+        {
+            await ShowAsync(reload.Value);
+        }
+        pickingLineId = null;
+        ignorePicksUntil = DateTime.UtcNow + DoubleTapDelay;
+
+        var current = order?.Lines.FirstOrDefault(l => l.Id == line.Id);
+        if (reload.IsSuccess && current is { IsPicked: true })
+        {
+            if (current.PickedBy == picker.Name)
+            {
+                // Notre validation a bien été enregistrée.
+                Done($"Ligne préparée : {line.Location}");
+            }
+            else
+            {
+                info = $"Cette ligne a déjà été préparée par {current.PickedBy}.";
+                // Le bouton appuyé a disparu avec la ligne : le focus va sur
+                // le message.
+                focusInfo = true;
+            }
+            return;
+        }
+
+        errorLineId = line.Id;
+        if (error.Code == "stock_insuffisant")
+        {
+            errorTitle = error.Message;
+            errorDetail = "La ligne n'est pas validée et le stock n'a pas changé.";
+        }
+        else if (error.Code == "deja_preparee")
+        {
+            // Préparée entre-temps, mais la commande n'a pas pu être relue
+            // pour dire par qui.
+            errorTitle = error.UserMessage;
+            errorDetail = "La ligne est déjà validée. Rechargez la commande pour voir par qui.";
+        }
+        else
+        {
+            errorTitle = error.UserMessage;
+            errorDetail = reload.IsSuccess || error.Kind == ApiErrorKind.Rejected && error.Status < 500
+                ? "La ligne n'est pas validée."
+                : "La validation n'a peut-être pas été enregistrée : réessayez dans un instant.";
+        }
+    }
+
+    // Fin d'une validation réussie : message, garde contre le double appui,
+    // focus sur le bandeau.
+    private void Done(string message)
+    {
+        pickingLineId = null;
+        success = message;
+        ignorePicksUntil = DateTime.UtcNow + DoubleTapDelay;
+        focusBanner = true;
+    }
+
+    private void ClearLineError()
+    {
+        errorLineId = null;
+        errorTitle = null;
+        errorDetail = null;
+    }
+}

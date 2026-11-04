@@ -38,6 +38,63 @@ public record Picker(long Id, string Name, DateTimeOffset CreatedAt)
     public string Initial => StringInfo.GetNextTextElement(Name).ToUpperInvariant();
 }
 
+/// <summary>Statuts d'une commande, tels que l'API les écrit.</summary>
+public static class OrderStatus
+{
+    public const string ToPrepare = "a_preparer";
+    public const string InProgress = "en_cours";
+    public const string Ready = "prete";
+}
+
+/// <summary>
+/// Commande dans la liste (GET /api/orders), avec son avancement : lineCount
+/// lignes, dont pickedCount préparées.
+/// </summary>
+public record OrderSummary(
+    long Id,
+    string Reference,
+    string Customer,
+    string Status,
+    DateTimeOffset CreatedAt,
+    int LineCount,
+    int PickedCount);
+
+/// <summary>
+/// Commande complète (GET /api/orders/{id}, et réponse d'une validation),
+/// avec ses lignes triées par emplacement par l'API.
+/// </summary>
+public record Order(
+    long Id,
+    string Reference,
+    string Customer,
+    string Status,
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<OrderLine> Lines)
+{
+    /// <summary>Nombre de lignes déjà préparées.</summary>
+    public int PickedCount => Lines.Count(line => line.IsPicked);
+}
+
+/// <summary>
+/// Ligne d'une commande : un produit, son emplacement, la quantité demandée
+/// et le stock actuel. PickedAt et PickedBy sont null tant que la ligne n'est
+/// pas préparée.
+/// </summary>
+public record OrderLine(
+    long Id,
+    long ProductId,
+    string Sku,
+    string ProductName,
+    string Location,
+    int Quantity,
+    int StockQty,
+    DateTimeOffset? PickedAt,
+    string? PickedBy)
+{
+    /// <summary>Vrai si la ligne est préparée.</summary>
+    public bool IsPicked => PickedAt is not null;
+}
+
 /// <summary>
 /// Corps d'une réponse d'erreur de l'API, au format unique
 /// {"error": "code", "message": "..."} (docs/PLAN.md, section 4.2).
@@ -76,6 +133,9 @@ public record ApiError(ApiErrorKind Kind, int? Status = null, string? Code = nul
     {
         { Kind: ApiErrorKind.Rejected, Message: { } message } => message,
         { Kind: ApiErrorKind.Unreachable } => "Le serveur ne répond pas. Réessayez dans un instant.",
+        // 503 sans le JSON de l'API : en ligne, la page d'attente de
+        // l'hébergeur pendant le réveil du service (docs/PLAN.md, étape 11).
+        { Kind: ApiErrorKind.Unexpected, Status: 503 } => "Le serveur démarre. Réessayez dans une minute.",
         _ => "Le serveur a envoyé une réponse inattendue. Réessayez dans un instant.",
     };
 }

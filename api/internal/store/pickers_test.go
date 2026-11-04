@@ -117,7 +117,7 @@ var emileNFD = "E" + string(rune(0x301)) + "mile"
 // accent est un autre nom ; « _ » et « % » sont des caractères ordinaires.
 func TestCreatePickerRefusesExistingName(t *testing.T) {
 	resetDB(t)
-	for _, name := range []string{"Mathias", "Émile", "Karim"} {
+	for _, name := range []string{"Mathias", "Émile", "Test"} {
 		if _, err := st.CreatePicker(t.Context(), name); err != nil {
 			t.Fatalf("création de %q : %v", name, err)
 		}
@@ -147,11 +147,11 @@ func TestCreatePickerRefusesExistingName(t *testing.T) {
 		t.Errorf("%d profils, attendu 3 : un refus ne crée rien", got)
 	}
 
-	// Noms différents, donc acceptés. « K_rim » et « Ka% » échoueraient avec
+	// Noms différents, donc acceptés. « T_st » et « Te% » échoueraient avec
 	// une recherche par LIKE ou ILIKE, où _ et % sont des jokers.
-	for _, name := range []string{"Emile", "K_rim", "Ka%"} {
+	for _, name := range []string{"Emile", "T_st", "Te%"} {
 		if _, err := st.CreatePicker(t.Context(), name); err != nil {
-			t.Errorf("« %s » à côté d'« Émile » et de « Karim » : erreur %v, attendu une création", name, err)
+			t.Errorf("« %s » à côté d'« Émile » et de « Test » : erreur %v, attendu une création", name, err)
 		}
 	}
 }

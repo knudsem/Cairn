@@ -79,6 +79,28 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
     public Task<ApiResult<Picker>> CreatePickerAsync(string name) =>
         SendAsync<Picker>(HttpMethod.Post, "api/pickers", JsonContent.Create(new { name }, options: Json), HttpStatusCode.Created);
 
+    /// <summary>GET /api/orders : les commandes, la plus ancienne en premier.</summary>
+    public Task<ApiResult<IReadOnlyList<OrderSummary>>> GetOrdersAsync() =>
+        SendAsync<IReadOnlyList<OrderSummary>>(HttpMethod.Get, "api/orders", null, HttpStatusCode.OK);
+
+    /// <summary>
+    /// GET /api/orders/{id} : la commande et ses lignes. Refus prévu
+    /// (Rejected) : 404 commande_introuvable.
+    /// </summary>
+    public Task<ApiResult<Order>> GetOrderAsync(long id) =>
+        SendAsync<Order>(HttpMethod.Get, $"api/orders/{id}", null, HttpStatusCode.OK);
+
+    /// <summary>
+    /// POST /api/orders/{orderId}/lines/{lineId}/pick : valide la ligne au nom
+    /// de picker. En cas de succès, la valeur est la commande mise à jour.
+    /// Refus prévus (Rejected) : 409 stock_insuffisant, 409 deja_preparee,
+    /// 404, 400. Sans réponse, la validation a pu être enregistrée : la page
+    /// relit alors la commande.
+    /// </summary>
+    public Task<ApiResult<Order>> PickLineAsync(long orderId, long lineId, string picker) =>
+        SendAsync<Order>(HttpMethod.Post, $"api/orders/{orderId}/lines/{lineId}/pick",
+            JsonContent.Create(new { picker }, options: Json), HttpStatusCode.OK);
+
     /// <summary>
     /// Envoie la requête et lit la réponse : la valeur JSON si le code HTTP est
     /// expected, sinon la raison de l'échec. Aucune exception ne sort de cette

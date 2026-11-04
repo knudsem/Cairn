@@ -363,7 +363,7 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
   { "id": 2, "name": "Virginie", "createdAt": "2026-11-04T07:00:00Z" }
 ]
 
-// POST /api/pickers, corps : { "name": "Karim" }
+// POST /api/pickers, corps : { "name": "Test" }
 // Réponse 201 : le profil créé, au même format qu'un élément de la liste.
 
 // Toute erreur :
@@ -614,14 +614,14 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - `GET /api/pickers` : 200 et la liste, `[]` si elle est vide ;
   - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes, dans `httpapi/body.go` ; sa réorganisation est couverte par les tests de l'étape 7, dont les messages attendus n'ont pas changé. Règle ajoutée pour les deux routes : les espaces ordinaires répétées à l'intérieur d'un nom sont réduites à une seule, car une page web les affiche comme une seule (« Jean  Pierre » et « Jean Pierre » seraient deux profils identiques à l'écran). Réponse 201 et le profil créé, sans en-tête `Location` (section 4.4) ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
 - **Tests, sur la base de test :**
-  - store : tri par nom (majuscules, accents, « Jean-Yves » et « Jeanne »), liste vide `[]`, création, doublon sans tenir compte des majuscules ni de l'écriture de l'accent (« mathias » face à « Mathias », « ÉMILE » et « Émile » écrit avec l'accent combinant face à « Émile »), noms proches acceptés (« Emile », « K_rim », « Ka% »), limite (le 20e profil passe, le 21e est refusé) ;
+  - store : tri par nom (majuscules, accents, « Jean-Yves » et « Jeanne »), liste vide `[]`, création, doublon sans tenir compte des majuscules ni de l'écriture de l'accent (« mathias » face à « Mathias », « ÉMILE » et « Émile » écrit avec l'accent combinant face à « Émile »), noms proches acceptés (« Emile », « T_st », « Te% »), limite (le 20e profil passe, le 21e est refusé) ;
   - filets de sécurité de la base, par des `INSERT` directs : un doublon (majuscules ou accent combinant) est refusé par l'index unique, un nom vide ou de 51 caractères par le `CHECK`, et 50 « é » passent ;
   - concurrence, sur 10 tours : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;
   - HTTP : 200, 201 (le profil a exactement les champs `id`, `name` et `createdAt`), noms acceptés à la limite (50 « é », espaces doublées réduites), 400 (chaque règle du nom, comme à l'étape 7), 409 `profil_existant` et `trop_de_profils`, 500 sans détail technique, 405 pour une autre méthode, format JSON des erreurs ;
   - `testdb` : un `lock_timeout` de 5 s sur les connexions des tests, pour qu'un verrou jamais relâché fasse échouer un test au lieu de le bloquer ;
   - contrôle par mutations, comme aux étapes 6 et 7 : 43 mutations, toutes détectées. 38 touchent le code (dont le retrait du `LOCK TABLE`, du `COLLATE` ou de `normalize`, une recherche par `ILIKE`, un nom de champ JSON en majuscule, l'oubli du `Rollback`) et 5 le schéma, chargé dans une base jetable (index sans `normalize`, sensible à la casse ou retiré, `CHECK` en octets ou retiré).
 - **Notions Go et SQL :** `LOCK TABLE` et ses modes de verrou, index sur une expression, normalisation Unicode (NFC), collation ICU, réponse 201 Created.
-- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Karim » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; « Jean   Pierre » est enregistré « Jean Pierre » ; après la remise à zéro, les trois profils d'origine reviennent.
+- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Test » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; « Jean   Pierre » est enregistré « Jean Pierre » ; après la remise à zéro, les trois profils d'origine reviennent.
 
 #### 7 bis.2 : écran « Qui prépare ? » (1 h 30)
 
@@ -633,13 +633,16 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui oublie le profil et ramène à « Qui prépare ? », puis à la page en cours une fois un profil choisi. Sur téléphone, l'icône seule remplace alors le logo complet, pour laisser la place au nom ;
   - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient` ; chaque appel renvoie un `ApiResult<T>`, la valeur ou la raison de l'échec (API injoignable ou délai dépassé, refus de l'API avec son code et son message, réponse inattendue), sans exception qui couperait le circuit Blazor ; JSON d'une erreur lu seulement si la réponse est de type `application/json` ; JSON lu strictement (un champ absent ou `null` à tort donne une réponse inattendue) ; état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
 - **Notions C# et Blazor :** service « scoped », `NavigationManager`, `[SupplyParameterFromQuery]`, `@bind`, `@ref` et `FocusAsync`, rendu conditionnel, `record`, expression `switch` sur des propriétés, lecture du code HTTP.
-- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Karim », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Karim » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; « Changer » ramène à « Qui prépare ? » ; API arrêtée, l'encadré d'erreur et « Réessayer » ; après la remise à zéro et un rechargement, les trois profils d'origine. Vérifié aussi dans Edge avec Playwright, en 1440 x 900, 820 x 1180 et 390 x 844.
+- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Test », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Test » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; « Changer » ramène à « Qui prépare ? » ; API arrêtée, l'encadré d'erreur et « Réessayer » ; après la remise à zéro et un rechargement, les trois profils d'origine. Vérifié aussi dans Edge avec Playwright, en 1440 x 900, 820 x 1180 et 390 x 844.
 - **Documentation :** [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [navigation](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/navigation), [liaison de données](https://learn.microsoft.com/aspnet/core/blazor/components/data-binding), [LOCK](https://www.postgresql.org/docs/18/sql-lock.html), [index sur une expression](https://www.postgresql.org/docs/18/indexes-expressional.html), [collations](https://www.postgresql.org/docs/18/collation.html)
 
 ### Étape 8 : écran liste des commandes (1 h 15)
 
 - **Contenu :**
-  - une carte par commande : référence, client, statut (couleur et libellé, jamais la couleur seule), avancement ;
+  - une seule page, `Pages/Orders.razor`, pour `/` et `/orders/{id}`, comme dans les maquettes : sur un écran large (1024 px et plus), la liste à gauche et la commande ouverte à droite ; sur un écran plus étroit, un seul des deux volets, avec « ← Commandes » pour revenir. Blazor garde le composant d'une adresse à l'autre : la liste reste chargée et suit l'état de la commande ouverte (étape 9) ;
+  - en tête de liste, « Commandes » et « Actualiser », puis deux onglets, « À préparer » (à préparer et en cours) et « Prêtes », avec leur nombre une fois la liste chargée ;
+  - une carte par commande : référence, statut (`StatusBadge.razor` : couleur et libellé, jamais la couleur seule), client, avancement (« 1 / 3 lignes préparées »), heure de création, barre d'avancement ; la commande ouverte est marquée ;
+  - états : chargement (cartes vides), encadré « Impossible de charger les commandes » avec « Réessayer », onglet vide ;
   - barre du haut avec le profil choisi et le bouton « Changer » (étape 7 bis) ; sans profil choisi, l'écran renvoie vers « Qui prépare ? » ;
   - priorité d'affichage : ordinateur et tablette d'abord ; mobile utilisable, finitions après le déploiement (section 6, priorités) ;
   - bases du client posées à l'étape 7 bis, reprises ici : chemins relatifs sans barre oblique initiale (`api/orders`), pour fonctionner avec n'importe quelle adresse de base (Compose ou Render) ; une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas ; JSON d'une erreur lu seulement si la réponse est de type `application/json`, et `JsonException` traduite en état « réponse inattendue » plutôt qu'en exception qui couperait le circuit Blazor (section 4.4) ;
@@ -657,23 +660,29 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 ### Étape 9 : écran de préparation (2 h)
 
 - **Contenu :**
-  - une carte par ligne : emplacement et quantité en très grand, nom du produit ;
+  - `OrderDetail.razor`, affiché par `Orders.razor` : à droite de la liste sur un écran large, à sa place sur un écran étroit (avec « ← Commandes ») ;
+  - en-tête : référence, statut, client, « 1 / 3 lignes préparées », barre d'avancement ;
+  - la carte « Prochaine ligne » (la première à préparer, dans l'ordre des emplacements), encadrée d'ocre : emplacement et quantité en très grand (`--font-size-display`), nom du produit, SKU et stock, bouton « Préparé » sur toute la largeur ; puis les autres lignes à préparer, plus compactes ; puis « Déjà préparées (n) », avec « ✓ Préparé par Romain à 09:20 » (heure de Paris) ;
   - bouton « Préparé » à la hauteur des contrôles (`--control-height` : 64 px au toucher, pour un usage avec des gants, 44 px à la souris) ; la validation envoie le nom du profil choisi (`PickerState`, étape 7 bis) ;
-  - priorité d'affichage : ordinateur et tablette d'abord ; mobile utilisable, finitions après le déploiement (section 6, priorités) ;
-  - bouton désactivé pendant l'appel, et garde-fou côté serveur : un appui reçu pendant un appel en cours, ou sur une ligne déjà préparée, est ignoré (un double appui avec des gants ne doit pas produire un 409 pour une validation réussie) ;
-  - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, puis message clair choisi d'après le code d'erreur : la validation a pu être enregistrée malgré l'erreur, et un 409 `deja_preparee` reçu après un nouvel essai le confirme ;
-  - nom du préparateur affiché sans débordement (`overflow: hidden`), dans un élément `<bdi>` pour qu'un nom écrit de droite à gauche ne dérange pas le texte qui l'entoure ;
-  - quand la commande est prête, un bandeau et un bouton de retour.
+  - après une validation : bandeau « ✓ Ligne préparée : B-07-2 », qui reçoit le focus ; la carte de la liste suit (statut, avancement) sans recharger la liste ;
+  - commande prête : bandeau « ✓ Commande prête », boutons « Commande suivante » (la plus ancienne commande qui n'est pas prête) et « Retour aux commandes » ;
+  - bouton désactivé pendant l'appel (« Validation... »), et garde côté serveur : un appui pendant un appel, ou dans les 700 ms qui suivent une validation ou l'ouverture d'une commande, est ignoré. Avec des gants, le second appui d'un double appui tomberait sinon sur le bouton de la ligne suivante, qui vient de prendre la place du premier ;
+  - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, qui décide du message : ligne préparée par ce profil (la validation a été enregistrée malgré l'erreur) ; « Cette ligne a déjà été préparée par Mathias. » ; sinon, l'erreur sous la ligne, avec « Réessayer » à la place de « Préparé » : « Stock insuffisant : 2 disponibles, 5 demandés. La ligne n'est pas validée et le stock n'a pas changé. », ou « La validation n'a peut-être pas été enregistrée » si la commande n'a pas pu être relue ;
+  - une réponse arrivée après l'ouverture d'une autre commande est ignorée ;
+  - nom du préparateur dans un élément `<bdi>`, pour qu'un nom écrit de droite à gauche ne dérange pas la phrase ; un nom long passe à la ligne.
 - **Notions C# et Blazor :**
   - paramètres de route (`{Id:long}`) ;
   - `@onclick` asynchrone ;
   - rendu conditionnel ;
   - lecture du code HTTP d'une réponse ;
-  - `HttpRequestException`.
+  - `HttpRequestException` ;
+  - `EventCallback` : un composant enfant prévient son parent ;
+  - `with` : copie d'un record avec quelques champs changés.
 - **Vérification :**
   - sur http://localhost:8081/orders/1, chaque validation change l'état de la carte, puis le bandeau « Commande prête » apparaît ;
   - sur CMD-0004, le message de stock insuffisant s'affiche ;
-  - deux fenêtres ouvertes sur CMD-0002 et CMD-0003 : la seconde validation est refusée. La preuve formelle de concurrence reste le test 4.
+  - deux fenêtres ouvertes sur CMD-0002, avec deux profils : la seconde validation est refusée, avec « Cette ligne a déjà été préparée par Mathias. ». La preuve formelle de concurrence reste le test 4 ;
+  - vérifié aussi avec Playwright, aux trois formats : double appui ignoré, API suspendue pendant une validation puis « Réessayer », commande inexistante.
 - **Documentation :** [événements](https://learn.microsoft.com/aspnet/core/blazor/components/event-handling), [cycle de vie](https://learn.microsoft.com/aspnet/core/blazor/components/lifecycle), [programmation asynchrone](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/), [types nullables](https://learn.microsoft.com/dotnet/csharp/nullable-references)
 
 ### Étape 10 : vérifications de bout en bout (1 h)
@@ -682,6 +691,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 - Parcours complet : choix ou création d'un profil, « Changer », commande jusqu'à « prête » ; puis remise à zéro de la démonstration (section 3.4) et retour des trois profils d'origine.
 - Affichage tablette dans les outils de développement du navigateur.
 - API coupée puis navigateur hors ligne : la fenêtre de reconnexion apparaît.
+- **Résultats (4 novembre, 18 h 30, refaits à 18 h 50 après la relecture) :** clone neuf, avec tous les changements non commités appliqués (étape 11 comprise) : `docker compose up --build` suffit, profils d'origine présents. Parcours complet réussi dans Edge (création de « Test », « Changer », CMD-0001 jusqu'à « prête » par Romain). Conteneur web arrêté : la fenêtre de reconnexion apparaît ; relancé : la page se recharge seule sur « Qui prépare ? », puis revient à la commande. L'émulation « hors ligne » de Playwright ne coupe pas un WebSocket déjà ouvert : la coupure se teste donc en arrêtant le conteneur. Corrections : pendant les nouveaux essais, la fenêtre affichait deux messages à la fois (composant du modèle .NET) ; « Nouvel essai dans 1 secondes » devient « dans 1 s. ». Le script vérifie qu'un seul message est visible. Toutes les vérifications des étapes 7 bis.2, 8 et 9 et les tests Go repassent.
 - **Documentation :** [SignalR et Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr)
 
 ### Relecture finale du projet complet (2 h 45)
@@ -714,10 +724,14 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 **Fichiers :**
 
 - `render.yaml` (Blueprint), à la racine : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
-  - `cairn-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
-  - `cairn-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API (`fromService` avec `envVarKey: RENDER_EXTERNAL_URL` ; si Render ne la fournit pas, l'URL copiée depuis le tableau de bord) ; `ApiTimeoutSeconds=90`.
+  - `cairn-knudsem-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
+  - `cairn-knudsem-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API, avec `sync: false` : saisie à la création du Blueprint (`https://cairn-knudsem-api.onrender.com/`), puis corrigée dans le tableau de bord si Render a donné une autre adresse au service. `fromService` ne fournit que l'adresse privée, inutilisable par un service gratuit ; `RENDER_EXTERNAL_URL` n'existe qu'à l'exécution, dans le service lui-même. `ApiTimeoutSeconds=90`.
 - `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
-- `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle ; si l'API répond par la page d'attente de Render plutôt que par son JSON, message « démarrage en cours » plutôt que « base indisponible ».
+- `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle. Dans `Models.cs`, un 503 sans le JSON de l'API (page d'attente de l'hébergeur) donne « Le serveur démarre. Réessayez dans une minute. ».
+
+**Noms des services :** `cairn-knudsem-api` et `cairn-knudsem-web`. Le nom donne l'adresse (`https://<nom>.onrender.com`), et `cairn-api` est déjà pris par le service d'un tiers (relevé par la relecture le 4 novembre) : avec cette adresse, l'interface aurait envoyé ses requêtes, noms des préparateurs compris, à un inconnu. Avant de créer le Blueprint, `curl.exe -sI https://cairn-knudsem-api.onrender.com/` doit répondre `x-render-routing: no-server` (nom libre).
+
+**Heures gratuites :** un onglet resté ouvert garde l'interface éveillée (Blazor envoie un message toutes les 15 secondes, et Render compte les messages WebSocket comme du trafic). Mot aux testeurs : fermer l'onglet après usage ; surveiller le compteur d'heures dans le tableau de bord.
 
 **Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS. pgx doit être en version 5.12.0 au moins (c'est le cas) : il gère `channel_binding` depuis la 5.9, et la 5.12.0 corrige un contournement de `channel_binding=require`.
 
@@ -743,7 +757,7 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 - profils : vérifiés sur Neon, dont la configuration peut différer de l'image Docker (collation par défaut `C.UTF-8`) : la collation `fr-x-icu` existe (sinon `GET /api/pickers` renverrait 500), le tri place « Émile » avant « Ève » et « Jean-Yves » avant « Jeanne », `lower()` traite une lettre accentuée et l'index avec `normalize` refuse un doublon. Si le temps le permet, les tests Go sont lancés sur une base `cairn_test` créée sur Neon ;
 - après plus de 15 minutes sans visite : page d'attente de Render, puis l'application, sans « API injoignable » ; durée du réveil notée ;
 - remise à zéro avec `db/reset.sql`, puis rechargement : données de démonstration d'origine ;
-- journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep neon.tech` ne trouve rien).
+- journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep -E "@ep-[a-z0-9]"` ne trouve rien (le nom d'hôte d'une chaîne Neon commence par `ep-`)).
 
 **Documentation :** [offre gratuite de Render](https://render.com/docs/free), [spécification Blueprint](https://render.com/docs/blueprint-spec), [Docker sur Render](https://render.com/docs/docker), [WebSockets sur Render](https://render.com/docs/websocket), [port des services web](https://render.com/docs/web-services), [health checks](https://render.com/docs/health-checks), [offres Neon](https://neon.com/docs/introduction/plans), [cycle de vie d'une compute Neon](https://neon.com/docs/introduction/compute-lifecycle), [choisir sa connexion Neon](https://neon.com/docs/connect/choose-connection), [connexion sécurisée à Neon](https://neon.com/docs/connect/connect-securely), [changelog de pgx](https://github.com/jackc/pgx/blob/master/CHANGELOG.md), [FAQ de cron-job.org](https://cron-job.org/en/faq/)
 
@@ -852,6 +866,11 @@ NOTES.md en fournit la matière.
 | Jeudi, soirée | Capture et vidéo (étape 12), déploiement (étape 11), livraison |
 
 - **Effet :** l'avance de mercredi absorbe la relecture finale, mais le déploiement passe en soirée, après la répétition, comme le prévoyaient déjà les priorités. Si la relecture finale déborde, les corrections s'arrêtent à 16 h 30 : les constats graves sont traités avant, les autres après le déploiement. La préparation de la présentation ne recule pas.
+
+### Point d'étape du mercredi 4 novembre, 18 h
+
+- **Fait :** étape 7 bis terminée (7 bis.2 avec sa refonte du design : deux densités, souris ou toucher).
+- **Décision :** les étapes 8, 9, 10 et 11 s'enchaînent ce soir, avec une relecture légère par étape, étape 9 comprise, pour une mise en ligne ce soir. La relecture finale du projet complet a lieu jeudi, sur la version en ligne ; ses corrections sont ensuite redéployées. Le reste du planning de jeudi (README, présentation, répétition) ne change pas.
 
 ### Priorités en cas de retard
 
