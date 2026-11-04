@@ -23,6 +23,7 @@ Versions de référence : Go 1.27, .NET 10 (LTS), PostgreSQL 18. Version en lign
 | Valider un squelette de bout en bout dès le premier jour | Le principal risque n'est pas une technologie prise isolément, mais leur assemblage : réseau Docker, ports, mode de rendu Blazor. Une page Blazor qui affiche l'état de l'API, lancée par Docker Compose, valide toute la chaîne avant d'écrire les fonctionnalités. |
 | Une base PostgreSQL de test séparée et jetable | Les tests vident les tables avant chaque cas. Ils ne doivent jamais toucher aux données de démonstration. |
 | Verrouiller la commande au début de la transaction de validation | Sans ce verrou, deux validations simultanées des dernières lignes d'une commande peuvent la laisser au statut `en_cours` alors que tout est préparé. Mesure de l'étape 5, avec un départ simultané et deux lignes sur deux produits différents : 200 commandes sur 200 restées `en_cours` sans le verrou, 0 sur 100 avec. Explication en section 3.3. |
+| Des profils de préparateurs, sans authentification | Le préparateur choisit son nom dans une liste de profils, ou crée le sien ; aucun mot de passe, choix assumé du scope pour un prototype. Le nom du profil est recopié dans la ligne validée (`picked_by`) : l'historique ne dépend pas du profil. Étape 7 bis. |
 
 ---
 
@@ -85,6 +86,8 @@ Cairn/
         store.go               types (Order, Line, Product) et erreurs métier
         queries.go             lectures : liste, détail, produits
         pick.go                règle métier : PickLine, une transaction
+        pickers.go             profils de préparateurs : liste et création (étape 7 bis)
+        pickers_test.go        tests des profils, concurrence comprise
         db_test.go             tests : connexion à la base de test, outils communs
         pick_test.go           tests de PickLine, concurrence comprise
         queries_test.go        tests des lectures
@@ -92,9 +95,11 @@ Cairn/
         routes.go              table des routes
         handlers.go            traduction HTTP ↔ store
         pick.go                validation d'une ligne : contrôle de la requête, traduction des erreurs
+        pickers.go             routes des profils (étape 7 bis)
         respond.go             réponses JSON et format d'erreur unique
         main_test.go           tests HTTP (httptest) : outils communs
         pick_test.go           tests de la route de validation
+        pickers_test.go        tests des routes des profils
         routes_test.go         tests des lectures et du routeur
       testdb/
         testdb.go              base de test des deux paquets : garde-fou, verrou, remise à zéro
@@ -107,12 +112,15 @@ Cairn/
       CairnApiClient.cs        seul endroit qui connaît les URL de l'API
       Models.cs                types échangés avec l'API : records du JSON, état ApiHealth
     State/
-      PickerState.cs           nom du préparateur sélectionné
+      PickerState.cs           profil du préparateur choisi pour la session
     Components/
-      App.razor, Routes.razor, _Imports.razor, Layout/   (générés)
+      App.razor, Routes.razor, _Imports.razor   (générés)
+      Layout/
+        MainLayout.razor       barre du haut : nom du profil et bouton « Changer »
       Pages/
-        Orders.razor           écran 1 : liste des commandes
-        OrderDetail.razor      écran 2 : préparation d'une commande
+        Pickers.razor          écran 1 : « Qui prépare ? » (étape 7 bis)
+        Orders.razor           écran 2 : liste des commandes
+        OrderDetail.razor      écran 3 : préparation d'une commande
       StatusBadge.razor        pastille de statut : couleur et libellé
     wwwroot/
       app.css, logo
@@ -129,7 +137,7 @@ Cairn/
 | Pas de couche « service » ni « repository » | La règle métier est une transaction SQL. Une couche qui ne ferait que déléguer ajouterait des fichiers sans rien protéger. Elle sera extraite si la logique grandit. |
 | SQL écrit à la main avec pgx, sans ORM | La garantie de stock se lit directement dans le SQL. pgx est le driver PostgreSQL de référence en Go. |
 | `CairnApiClient` | Les pages Blazor n'émettent jamais de requête HTTP directement : tous les appels passent par cette classe. |
-| `PickerState` en service « scoped » | En Interactive Server, une instance par onglet connecté. Le nom est perdu au rechargement de la page, ce qui est acceptable sans authentification. |
+| `PickerState` en service « scoped » | En Interactive Server, une instance par onglet connecté. Il garde le profil choisi (identifiant et nom). Le choix est perdu au rechargement de la page, ce qui est acceptable sans authentification : l'écran « Qui prépare ? » le redemande. |
 | Modèle Blazor `--empty`, CSS sans librairie | Pas de Bootstrap ni de librairie de composants : une feuille de style courte, aux couleurs du logo (`#1B2A41`, `#F4EFE6`, `#D9A066`). |
 | Render (offre gratuite) et Neon pour la version en ligne | Gratuits, sans carte bancaire ; HTTPS automatique ; Render accepte les images Docker et les WebSockets de Blazor Server ; la base Neon n'expire pas, contrairement à la base gratuite de Render. Limites et parades à l'étape 11. |
 
@@ -168,6 +176,17 @@ CREATE TABLE order_lines (
 );
 
 CREATE INDEX order_lines_order_id_idx ON order_lines (order_id);
+
+-- Étape 7 bis : profils de préparateurs.
+CREATE TABLE pickers (
+    id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name        text        NOT NULL CHECK (char_length(name) BETWEEN 1 AND 50),
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS »
+-- ne peuvent pas coexister.
+CREATE UNIQUE INDEX pickers_name_lower_key ON pickers (lower(name));
 ```
 
 ### 3.2 Choix de modélisation
@@ -181,6 +200,9 @@ CREATE INDEX order_lines_order_id_idx ON order_lines (order_id);
 | `picked_at` et contrainte de cohérence | L'état « préparée » se déduit de `picked_at`, sans booléen redondant. La contrainte interdit une date sans préparateur, et inversement. |
 | Index sur `order_lines(order_id)` | PostgreSQL n'indexe pas automatiquement les clés étrangères. |
 | `timestamptz` | Date avec fuseau horaire, recommandée par PostgreSQL. |
+| Index unique sur `lower(pickers.name)` | L'unicité sans tenir compte des majuscules est garantie par la base, même pour deux créations simultanées. Avec la configuration de l'image Docker (`en_US.utf8`), `lower()` traite aussi les lettres accentuées : `lower('ÉMILE')` donne `émile` (vérifié). À revérifier sur Neon (étape 11). |
+| `picked_by` reste un texte, sans clé étrangère vers `pickers` | Le nom du profil est recopié au moment de la validation : l'historique d'une ligne ne dépend pas du profil, même s'il est un jour renommé ou supprimé. La validation (étape 7) n'exige pas un profil existant : sans authentification, cette vérification ne protégerait rien. |
+| `CHECK` sur la longueur du nom | Filet de sécurité, comme pour le stock : l'API valide le nom (étape 7), la base refuse quand même un nom vide ou trop long. |
 
 ### 3.3 Garantie : le stock ne devient jamais négatif
 
@@ -265,10 +287,18 @@ Avec l'étape 1, B attend avant de commencer : toutes ses instructions voient le
 | CMD-0001 | à préparer | parcours nominal, 3 ou 4 lignes, stocks suffisants |
 | CMD-0002 et CMD-0003 | à préparer | chacune demande 4 unités d'un produit en stock 5 : démonstration de concurrence |
 | CMD-0004 | à préparer | une ligne au stock insuffisant : refus reproductible |
-| CMD-0005 | en cours | 1 ligne sur 3 déjà préparée |
-| CMD-0006 | prête | toutes les lignes préparées |
+| CMD-0005 | en cours | 1 ligne sur 3 déjà préparée, par Romain |
+| CMD-0006 | prête | toutes les lignes préparées, par Virginie |
 
 Une dizaine de produits, avec des emplacements numérotés sur deux chiffres (`A-03-2`). Le tri alphabétique des emplacements suit alors l'ordre physique de l'allée : les lignes d'une commande sont présentées dans l'ordre du chemin de prélèvement.
+
+Trois profils de préparateurs (étape 7 bis), insérés dans cet ordre : « Mathias », « Virginie », « Romain ». L'ordre d'insertion diffère de l'ordre alphabétique (Mathias, Romain, Virginie) : un tri oublié se verrait.
+
+**Remise à zéro de la démonstration** (locale), en une seule transaction, qui remet exactement ces données, les trois profils compris :
+
+```powershell
+docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products, pickers RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql
+```
 
 ### 3.5 Évolutions optionnelles
 
@@ -301,6 +331,8 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
 | `GET` | `/api/orders/{id}` | 200 : commande et lignes triées par emplacement | 400 si l'identifiant n'est pas un nombre, 404 |
 | `POST` | `/api/orders/{id}/lines/{lineId}/pick` | 200 : commande mise à jour | 400, 404, 409 |
 | `GET` | `/api/products` | 200 : produits et stock | |
+| `GET` | `/api/pickers` | 200 : profils triés par nom | |
+| `POST` | `/api/pickers` | 201 : profil créé | 400, 409 |
 
 ### 4.2 Format des réponses
 
@@ -316,8 +348,18 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
   ]
 }
 
-// POST /api/orders/1/lines/3/pick, corps : { "picker": "Alice" }
+// POST /api/orders/1/lines/3/pick, corps : { "picker": "Mathias" }
 // Réponse : la commande mise à jour, au même format.
+
+// GET /api/pickers : les profils, triés par nom
+[
+  { "id": 1, "name": "Mathias", "createdAt": "2026-11-04T07:00:00Z" },
+  { "id": 3, "name": "Romain", "createdAt": "2026-11-04T07:00:00Z" },
+  { "id": 2, "name": "Virginie", "createdAt": "2026-11-04T07:00:00Z" }
+]
+
+// POST /api/pickers, corps : { "name": "Karim" }
+// Réponse 201 : le profil créé, au même format qu'un élément de la liste.
 
 // Toute erreur :
 { "error": "stock_insuffisant", "message": "Stock insuffisant : 3 disponibles, 4 demandés." }
@@ -329,11 +371,13 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 
 | Code HTTP | `error` | Cas |
 |---|---|---|
-| 400 | `requete_invalide` | identifiant non numérique, corps refusé (type, taille, JSON invalide, champ inconnu), nom de préparateur invalide, statut de filtre inconnu |
+| 400 | `requete_invalide` | identifiant non numérique, corps refusé (type, taille, JSON invalide, champ inconnu), nom de préparateur ou de profil invalide, statut de filtre inconnu |
 | 404 | `commande_introuvable` | commande inexistante |
 | 404 | `ligne_introuvable` | ligne inexistante, ou n'appartenant pas à la commande |
 | 409 | `deja_preparee` | ligne déjà validée |
 | 409 | `stock_insuffisant` | stock inférieur à la quantité demandée |
+| 409 | `profil_existant` | un profil porte déjà ce nom, sans tenir compte des majuscules ; le message donne le nom existant |
+| 409 | `trop_de_profils` | 20 profils existent déjà |
 | 500 | `erreur_interne` | message générique ; le détail reste dans les journaux du serveur |
 | 503 | `base_indisponible` | `GET /health` : la base de données ne répond pas |
 
@@ -544,16 +588,52 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
   - la même validation renvoie ensuite 409 `deja_preparee` ;
   - une ligne de CMD-0004 renvoie 409 `stock_insuffisant` ;
   - un nom de préparateur contenant `\u0000` renvoie 400 `requete_invalide` ;
-  - remise à zéro de la base de démonstration, en une seule transaction : `docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql`.
+  - remise à zéro de la base de démonstration, en une seule transaction : `docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql`. Depuis l'étape 7 bis, la commande vide aussi `pickers` : voir la section 3.4.
 
-### Étape 8 : écran liste des commandes (1 h 30)
+### Étape 7 bis : profils de préparateurs (3 h 30)
+
+Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou crée le sien, sans mot de passe : c'est un choix assumé du scope (section 1). L'étape a deux parties, chacune avec sa vérification et son commit.
+
+#### 7 bis.1 : base de données, API et tests (2 h)
+
+- **Base :**
+  - table `pickers` dans `db/init/001_schema.sql` (section 3.1) ; trois profils de départ dans `002_seed.sql` ; les lignes déjà préparées passent à « Romain » (CMD-0005) et à « Virginie » (CMD-0006) ;
+  - la table entre dans `001_schema.sql`, et non dans un script `003` (section 3.5), car le projet n'est pas encore livré. Une seule fois, la base locale est donc recréée (`docker compose down -v`, puis `docker compose up -d --build --wait`), ainsi que la base de test (`docker compose up -d --force-recreate --wait db-test`) ;
+  - remise à zéro de la démonstration : `pickers` s'ajoute au `TRUNCATE` (section 3.4). Côté tests, `testdb.Reset` vide aussi `pickers`, dont les identifiants repartent de 301.
+- **Store (`store/pickers.go`) :**
+  - `ListPickers` : `ORDER BY name COLLATE "fr-x-icu", id`. La collation ICU donne l'ordre alphabétique français, sans tenir compte des majuscules, quelle que soit la configuration du serveur. Vérifié sur l'image Docker : « alice, Bob, Émile, Ève, zoé, Zoé », alors que la collation `C` donnerait « Bob, Zoé, alice, zoé, Ève, Émile ». À revérifier sur Neon (étape 11) ;
+  - `CreatePicker` : une transaction qui verrouille d'abord la table (`LOCK TABLE pickers IN SHARE ROW EXCLUSIVE MODE` : les lectures continuent, deux créations passent l'une après l'autre), cherche un nom identique sans tenir compte des majuscules (`ErrPickerExists`, avec le nom existant), compte les profils (`ErrTooManyPickers` à partir de 20), puis insère. Un nom existant l'emporte sur la limite. Sans le verrou, deux créations simultanées à 19 profils pourraient en faire 21 ; l'index unique reste le filet de sécurité des doublons ;
+  - dates en UTC, comme à l'étape 4.
+- **API (`httpapi/pickers.go`) :**
+  - `GET /api/pickers` : 200 et la liste, `[]` si elle est vide ;
+  - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes ; sa réorganisation est couverte par les tests de l'étape 7. Réponse 201 et le profil créé ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
+- **Tests, sur la base de test :**
+  - store : tri par nom (majuscules et accents), liste vide `[]`, création, doublon sans tenir compte des majuscules (« mathias » face à « Mathias », « ÉMILE » face à « Émile »), limite (le 20e profil passe, le 21e est refusé) ;
+  - concurrence : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;
+  - HTTP : 200, 201, 400 (chaque règle du nom, comme à l'étape 7), 409 `profil_existant` et `trop_de_profils`, 500 sans détail technique, 405 pour une autre méthode, format JSON des erreurs ;
+  - contrôle par mutations, comme aux étapes 6 et 7 ; en particulier, sans le `LOCK TABLE`, le test de concurrence doit échouer.
+- **Notions Go et SQL :** `LOCK TABLE` et ses modes de verrou, index sur une expression, collation ICU, réponse 201 Created.
+- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Karim » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; après la remise à zéro, les trois profils d'origine reviennent.
+
+#### 7 bis.2 : écran « Qui prépare ? » (1 h 30)
+
+- **Contenu :**
+  - écran « Qui prépare ? » (`/pickers`) : les profils de l'API en gros boutons (64 px de haut au moins), dans l'ordre de l'API, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler » ;
+  - « Créer » : en cas de succès, le nouveau profil est choisi d'office ; sinon, un message sous le champ, choisi d'après le code d'erreur : « Ce profil existe déjà : choisissez-le dans la liste. », « 20 profils au maximum : choisissez un profil existant. », ou le message de l'API pour un nom refusé ;
+  - `PickerState` (service « scoped ») garde le profil choisi pour la session. Une page ouverte sans profil choisi renvoie vers « Qui prépare ? », puis vers la page demandée (une adresse relative seulement) ;
+  - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui ramène à « Qui prépare ? » ;
+  - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient`, JSON d'une erreur lu seulement si la réponse est de type `application/json`, `JsonException` sans coupure du circuit Blazor, état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
+- **Notions C# et Blazor :** service « scoped », `NavigationManager`, `@bind`, rendu conditionnel, `PostAsJsonAsync` et lecture du code HTTP.
+- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Karim », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Karim » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; après la remise à zéro et un rechargement, les trois profils d'origine.
+- **Documentation :** [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [navigation](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/navigation), [liaison de données](https://learn.microsoft.com/aspnet/core/blazor/components/data-binding), [LOCK](https://www.postgresql.org/docs/18/sql-lock.html), [index sur une expression](https://www.postgresql.org/docs/18/indexes-expressional.html), [collations](https://www.postgresql.org/docs/18/collation.html)
+
+### Étape 8 : écran liste des commandes (1 h 15)
 
 - **Contenu :**
   - une carte par commande : référence, client, statut (couleur et libellé, jamais la couleur seule), avancement ;
-  - sélection du préparateur par de grands boutons ;
-  - dans `CairnApiClient`, des chemins relatifs sans barre oblique initiale (`api/orders`), pour fonctionner avec n'importe quelle adresse de base (Compose ou Render) ;
-  - une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas ;
-  - dans `CairnApiClient`, le JSON d'une erreur n'est lu que si la réponse est de type `application/json`, et une `JsonException` donne un état « réponse inattendue » plutôt qu'une exception qui couperait le circuit Blazor (section 4.4) ;
+  - barre du haut avec le profil choisi et le bouton « Changer » (étape 7 bis) ; sans profil choisi, l'écran renvoie vers « Qui prépare ? » ;
+  - priorité d'affichage : ordinateur et tablette d'abord ; mobile utilisable, finitions après le déploiement (section 6, priorités) ;
+  - bases du client posées à l'étape 7 bis, reprises ici : chemins relatifs sans barre oblique initiale (`api/orders`), pour fonctionner avec n'importe quelle adresse de base (Compose ou Render) ; une API lente est un cas normal (réveil sur Render, étape 11) : état de chargement visible, puis message clair et bouton « Réessayer » si elle ne répond pas ; JSON d'une erreur lu seulement si la réponse est de type `application/json`, et `JsonException` traduite en état « réponse inattendue » plutôt qu'en exception qui couperait le circuit Blazor (section 4.4) ;
   - dans `Models.cs`, les dates en `DateTimeOffset` (jamais `DateTime`), converties pour l'affichage vers le fuseau `Europe/Paris` : le conteneur web tourne en UTC ; les statuts restent des chaînes (`a_preparer`), qu'un convertisseur d'énumération par défaut ne saurait pas lire.
 - **Notions C# et Blazor :**
   - `@foreach` ;
@@ -562,14 +642,15 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
   - durée de vie « scoped » ;
   - `record` (données JSON des commandes) ;
   - expressions `switch`.
-- **Vérification :** http://localhost:8081 affiche les commandes de la plus ancienne à la plus récente, avec trois couleurs de statut ; un appui sur une carte ouvre `/orders/{id}`.
+- **Vérification :** http://localhost:8081, une fois le profil choisi, affiche les commandes de la plus ancienne à la plus récente, avec trois couleurs de statut ; un appui sur une carte ouvre `/orders/{id}`.
 - **Documentation :** [composants](https://learn.microsoft.com/aspnet/core/blazor/components/), [routage](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/routing), [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [CSS isolé](https://learn.microsoft.com/aspnet/core/blazor/components/css-isolation), [records](https://learn.microsoft.com/dotnet/csharp/fundamentals/types/records), [expression switch](https://learn.microsoft.com/dotnet/csharp/language-reference/operators/switch-expression)
 
 ### Étape 9 : écran de préparation (2 h)
 
 - **Contenu :**
   - une carte par ligne : emplacement et quantité en très grand, nom du produit ;
-  - bouton « Préparé » d'au moins 48 px de haut (64 px visés pour un usage avec des gants) ;
+  - bouton « Préparé » d'au moins 48 px de haut (64 px visés pour un usage avec des gants) ; la validation envoie le nom du profil choisi (`PickerState`, étape 7 bis) ;
+  - priorité d'affichage : ordinateur et tablette d'abord ; mobile utilisable, finitions après le déploiement (section 6, priorités) ;
   - bouton désactivé pendant l'appel, et garde-fou côté serveur : un appui reçu pendant un appel en cours, ou sur une ligne déjà préparée, est ignoré (un double appui avec des gants ne doit pas produire un 409 pour une validation réussie) ;
   - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, puis message clair choisi d'après le code d'erreur : la validation a pu être enregistrée malgré l'erreur, et un 409 `deja_preparee` reçu après un nouvel essai le confirme ;
   - nom du préparateur affiché sans débordement (`overflow: hidden`), dans un élément `<bdi>` pour qu'un nom écrit de droite à gauche ne dérange pas le texte qui l'entoure ;
@@ -589,6 +670,7 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
 ### Étape 10 : vérifications de bout en bout (1 h)
 
 - Dans un clone neuf du dépôt, `docker compose up --build` doit suffire.
+- Parcours complet : choix ou création d'un profil, « Changer », commande jusqu'à « prête » ; puis remise à zéro de la démonstration (section 3.4) et retour des trois profils d'origine.
 - Affichage tablette dans les outils de développement du navigateur.
 - API coupée puis navigateur hors ligne : la fenêtre de reconnexion apparaît.
 - **Documentation :** [SignalR et Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr)
@@ -607,7 +689,7 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
 
 - un service s'endort après 15 minutes sans trafic entrant (requêtes HTTP ou messages WebSocket) et met environ une minute à se réveiller ; le navigateur voit pendant ce temps une page d'attente de Render. Ce que reçoit un client qui n'est pas un navigateur (l'interface qui appelle l'API) n'est pas documenté : probablement un 503, à mesurer ;
 - 750 heures gratuites par mois pour tout le compte, partagées entre les deux services ; épuisées, elles suspendent tout jusqu'au mois suivant. Deux services éveillés en permanence les épuisent vers le 16e jour ;
-- un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement ;
+- un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement : n'importe qui peut valider des lignes ou créer des profils, jusqu'à 20 (étape 7 bis). C'est la conséquence assumée de l'absence d'authentification ; la remise à zéro ramène les données et les trois profils d'origine ;
 - pas de commande « pre-deploy », de shell ni de tâche ponctuelle : le schéma et les données s'appliquent depuis le poste, avec psql ;
 - Neon endort la base après 5 minutes sans requête (réveil en quelques centaines de millisecondes, connexions coupées puis recréées par pgxpool) et accorde 100 heures de calcul (CU-heures) par mois, soit environ 400 heures avec la plus petite taille ;
 - sans `plan: free` explicite, Render crée un service payant ; sans `region: frankfurt`, il choisit l'Oregon, et la région ne change plus ensuite.
@@ -617,7 +699,7 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
 - `render.yaml` (Blueprint), à la racine : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
   - `cairn-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
   - `cairn-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API (`fromService` avec `envVarKey: RENDER_EXTERNAL_URL` ; si Render ne la fournit pas, l'URL copiée depuis le tableau de bord) ; `ApiTimeoutSeconds=90`.
-- `db/reset.sql` : supprime les trois tables, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées.
+- `db/reset.sql` : supprime les quatre tables (profils compris), puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
 - `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle ; si l'API répond par la page d'attente de Render plutôt que par son JSON, message « démarrage en cours » plutôt que « base indisponible ».
 
 **Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS. pgx doit être en version 5.12.0 au moins (c'est le cas) : il gère `channel_binding` depuis la 5.9, et la 5.12.0 corrige un contournement de `channel_binding=require`.
@@ -640,7 +722,8 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 **Vérification sur le lien public :**
 
 - depuis un téléphone en 4G, donc hors du réseau local : `https://<web>.onrender.com` affiche le cadenas HTTPS, le logo et la liste des commandes ;
-- parcours complet : CMD-0001 jusqu'à « prête », refus de stock insuffisant sur CMD-0004 ;
+- parcours complet : choix d'un profil, CMD-0001 jusqu'à « prête », refus de stock insuffisant sur CMD-0004 ;
+- profils : tri et unicité sans tenir compte des majuscules vérifiés sur Neon, dont la configuration peut différer de l'image Docker (collation `fr-x-icu`, `lower()` sur une lettre accentuée) ;
 - après plus de 15 minutes sans visite : page d'attente de Render, puis l'application, sans « API injoignable » ; durée du réveil notée ;
 - remise à zéro avec `db/reset.sql`, puis rechargement : données de démonstration d'origine ;
 - journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep neon.tech` ne trouve rien).
@@ -709,9 +792,28 @@ La présentation comporte quatre parties :
 
 NOTES.md en fournit la matière.
 
+### Point d'étape du mercredi 4 novembre, 13 h 30
+
+- **Fait :** étapes 0 à 7, terminées mercredi à 13 h 10 au lieu de 22 h 15. L'avance correspond au reste de la journée de mercredi : environ 7 h 45 de créneaux de travail.
+- **Constat :** avec les relectures indépendantes et les contrôles par mutations, une étape prend deux à quatre fois son estimation (étape 7 : 45 min prévues, environ 3 h 20 réelles). C'est le prix de la qualité, mais il faut le compter.
+- **Ajout :** étape 7 bis, profils de préparateurs : 3 h 30 estimées, environ 5 h réalistes. Une partie de l'étape 8 (les bases du client) passe dans l'étape 7 bis, et l'étape 8 passe de 1 h 30 à 1 h 15.
+
+| Horaire | Contenu |
+|---|---|
+| Mercredi, 13 h 45 à 17 h | Étape 7 bis.1 : profils, base de données, API et tests |
+| Mercredi, 17 h à 18 h | Pause |
+| Mercredi, 18 h à 20 h 30 | Étape 7 bis.2 : écran « Qui prépare ? » |
+| Mercredi, soirée | Étape 8 si les wireframes sont prêts |
+| Jeudi | Planning du jour 2 inchangé |
+
+- **Effet sur l'avance :** il en reste environ 2 h, mercredi soir. Si les étapes 8 et 9 dépassent jeudi leurs créneaux autant que les précédentes, le déploiement (étape 11) est le premier poste menacé, comme le prévoient les priorités ci-dessous ; il peut passer en soirée.
+- **Pour tenir :** relectures complètes (plusieurs relecteurs, mutations) pour le code Go, où se trouvent les règles et les tests ; une seule relecture indépendante pour les écrans, qui n'ont pas de tests automatiques.
+
 ### Priorités en cas de retard
 
 - **Supprimés en premier :** les évolutions optionnelles, puis les finitions visuelles, puis le déploiement en ligne.
+- **Si l'étape 7 bis déborde nettement de son estimation réaliste (5 h) :** on fait le point avant de continuer. La liste des profils et le choix du profil restent, car les étapes 8 et 9 en dépendent ; le formulaire « + Ajouter un profil » passe après le déploiement. La route de création reste dans l'API, testée.
+- **Écrans (étapes 7 bis.2, 8 et 9) :** d'abord l'ordinateur et la tablette, qui servent à la démonstration. La version mobile doit rester utilisable : sur un téléphone (390 px de large), pas de défilement horizontal, tout le texte lisible et chaque bouton accessible. Ses finitions passent après le déploiement.
 - **Jamais réduits :** les tests, le README, le créneau de préparation de la présentation et la répétition.
 
 ---

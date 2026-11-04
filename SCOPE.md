@@ -15,11 +15,12 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 **Besoin :** savoir quelles commandes préparer, où trouver chaque produit, et indiquer ce qui est préparé, sans erreur de stock.
 
 **Parcours principal :**
-1. Le préparateur voit la liste des commandes à préparer.
-2. Il ouvre une commande et voit ses lignes : produit, quantité, emplacement.
-3. Il valide chaque ligne une fois le produit prélevé. Le stock baisse automatiquement.
-4. Si le stock est insuffisant, la validation est refusée avec un message clair.
-5. Quand toutes les lignes sont validées, la commande passe automatiquement au statut « prête ».
+1. Le préparateur choisit son profil dans la liste des préparateurs, ou crée le sien.
+2. Il voit la liste des commandes à préparer.
+3. Il ouvre une commande et voit ses lignes : produit, quantité, emplacement.
+4. Il valide chaque ligne une fois le produit prélevé. Le stock baisse automatiquement, et la ligne garde le nom du préparateur.
+5. Si le stock est insuffisant, la validation est refusée avec un message clair.
+6. Quand toutes les lignes sont validées, la commande passe automatiquement au statut « prête ».
 
 ## 3. Périmètre
 
@@ -29,7 +30,8 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 - Validation d'une ligne : la ligne passe à préparée, le stock du produit baisse, et le statut de la commande se met à jour.
 - Règle absolue : le stock ne devient jamais négatif, même si deux préparateurs valident en même temps.
 - Une ligne déjà préparée ne peut pas être validée une seconde fois.
-- Données de démonstration chargées au démarrage.
+- Profils de préparateurs : liste des profils, création d'un profil (nom unique sans tenir compte des majuscules, 20 profils au maximum, même en cas de créations simultanées), choix d'un profil pour la session.
+- Données de démonstration chargées au démarrage, avec trois profils (« Mathias », « Virginie » et « Romain »), et remise à zéro qui les rétablit exactement.
 - Tests automatisés sur les règles métier.
 - Lancement complet en une commande avec Docker Compose.
 
@@ -40,7 +42,8 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 - Annulation de la validation d'une ligne, avec remise en stock.
 
 ### Hors périmètre
-- Authentification et gestion des utilisateurs : le nom du préparateur est simplement choisi dans l'interface.
+- Authentification : les profils de préparateurs n'ont ni mot de passe ni droits. N'importe qui peut choisir un profil ou en créer un. C'est un choix assumé pour ce prototype, à revoir avant tout usage réel.
+- Modification et suppression d'un profil.
 - Création ou modification de commandes depuis l'interface.
 
 ## 4. Stack technique
@@ -60,7 +63,8 @@ Pas de framework lourd côté Go : l'objectif est de comprendre les bases du lan
 
 - **products** : `id`, `sku`, `name`, `location` (ex. `A-03-2` pour allée, rack, niveau), `stock_qty` avec la contrainte `CHECK (stock_qty >= 0)`.
 - **orders** : `id`, `reference`, `customer`, `status`, `created_at`.
-- **order_lines** : `id`, `order_id`, `product_id`, `quantity` (strictement positive), `picked_at` (vide si non préparée), `picked_by`.
+- **order_lines** : `id`, `order_id`, `product_id`, `quantity` (strictement positive), `picked_at` (vide si non préparée), `picked_by` (nom du profil, recopié au moment de la validation).
+- **pickers** : `id`, `name` (unique sans tenir compte des majuscules, 50 caractères au maximum), `created_at`.
 - **stock_movements** (bonus) : `id`, `product_id`, `delta`, `reason`, `order_line_id`, `created_by`, `created_at`.
 
 ### Garantir que le stock ne devient jamais négatif
@@ -80,20 +84,23 @@ La contrainte `CHECK` en base sert de filet de sécurité supplémentaire. Le ch
 | `GET` | `/api/orders/{id}` | Détail d'une commande et de ses lignes |
 | `POST` | `/api/orders/{id}/lines/{lineId}/pick` | Valider une ligne (corps : `{ "picker": "Nom" }`) |
 | `GET` | `/api/products` | Lister les produits et leur stock |
+| `GET` | `/api/pickers` | Lister les profils de préparateurs, triés par nom |
+| `POST` | `/api/pickers` | Créer un profil (corps : `{ "name": "Nom" }`) |
 
 ### Codes de réponse
-- `200` : succès.
+- `200` : succès ; `201` : profil créé.
 - `400` : requête invalide.
 - `404` : commande ou ligne introuvable.
-- `409` : conflit (stock insuffisant ou ligne déjà préparée), avec un message lisible.
+- `409` : conflit (stock insuffisant, ligne déjà préparée, profil existant ou trop de profils), avec un message lisible.
 
 Les erreurs sont renvoyées dans un format JSON unique, par exemple `{ "error": "stock_insuffisant", "message": "..." }`.
 
 ## 7. Interface Blazor
 
 Écrans :
-1. **Commandes** : liste des commandes, statut visible par une couleur et un libellé, la plus ancienne en premier.
-2. **Préparation d'une commande** : une carte par ligne avec le produit, la quantité en très grand, l'emplacement bien visible, et un gros bouton « Préparé ».
+1. **Qui prépare ?** : les profils en gros boutons, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler ». Le profil choisi est gardé pour la session ; la barre du haut affiche son nom et un bouton « Changer ».
+2. **Commandes** : liste des commandes, statut visible par une couleur et un libellé, la plus ancienne en premier.
+3. **Préparation d'une commande** : une carte par ligne avec le produit, la quantité en très grand, l'emplacement bien visible, et un gros bouton « Préparé ».
 
 Règles d'ergonomie :
 - Boutons d'au moins 48 px de haut, utilisables avec des gants.
@@ -109,6 +116,7 @@ Minimum attendu :
 - Valider deux fois la même ligne est refusé.
 - Deux validations simultanées sur un stock qui ne suffit que pour une seule : une réussit, l'autre est refusée, et le stock final est correct.
 - La commande passe à `prete` quand toutes ses lignes sont préparées.
+- Deux profils ne peuvent pas porter le même nom, sans tenir compte des majuscules, et la limite de 20 profils tient même en cas de créations simultanées.
 
 Les tests qui touchent la base tournent sur une vraie base PostgreSQL de test, lancée avec Docker.
 
@@ -152,7 +160,7 @@ En cas de retard, on retire des bonus, jamais les tests ni le README.
 ## 11. Définition de « terminé »
 
 - `docker compose up` lance tout sans étape manuelle.
-- Le parcours principal fonctionne dans le navigateur, de la liste des commandes jusqu'à la commande « prête ».
+- Le parcours principal fonctionne dans le navigateur, du choix du profil jusqu'à la commande « prête ».
 - Tous les tests passent.
 - Le README permet à quelqu'un qui ne me connaît pas de lancer et de comprendre le projet.
 - Je peux expliquer chaque fichier et chaque choix technique.
