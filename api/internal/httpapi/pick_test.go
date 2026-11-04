@@ -223,9 +223,9 @@ func TestPickLineBodySizeLimit(t *testing.T) {
 }
 
 // Noms acceptés, et nom enregistré : espaces de début et de fin retirés,
-// accents (même écrits en deux caractères), apostrophe typographique,
-// échappements JSON, émoji, un seul caractère, et 50 caractères, même quand
-// ils occupent 100 octets.
+// espaces doublées au milieu réduites à une seule, accents (même écrits en
+// deux caractères), apostrophe typographique, échappements JSON, émoji, un
+// seul caractère, et 50 caractères, même quand ils occupent 100 octets.
 func TestPickLineAcceptedPickerNames(t *testing.T) {
 	fifty := strings.Repeat("a", 50)
 	for _, c := range []struct{ name, picker, stored string }{
@@ -236,6 +236,7 @@ func TestPickLineAcceptedPickerNames(t *testing.T) {
 		{"échappement JSON", `"L` + jsonEscape(0xe9) + `a"`, "Léa"},
 		{"accent écrit en deux caractères", `"Le` + jsonEscape(0x301) + `a"`, "Le" + string(rune(0x301)) + "a"},
 		{"émoji", `"Zoë 🙂"`, "Zoë 🙂"},
+		{"espaces doublées au milieu", `"Jean   Pierre"`, "Jean Pierre"},
 		{"un seul caractère", `"Q"`, "Q"},
 		{"chiffres seulement", `"42"`, "42"},
 		{"50 caractères", `"` + fifty + `"`, fifty},

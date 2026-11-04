@@ -130,19 +130,22 @@ func contentType(rec *httptest.ResponseRecorder) string {
 // compare au texte attendu.
 func checkError(t *testing.T, rec *httptest.ResponseRecorder, status int, code string) string {
 	t.Helper()
+	// Le corps finit par un saut de ligne (json.Encoder) : retiré pour que les
+	// messages d'échec restent sur une ligne.
+	text := strings.TrimSpace(rec.Body.String())
 	if rec.Code != status {
-		t.Errorf("code HTTP %d, attendu %d (corps : %s)", rec.Code, status, rec.Body)
+		t.Errorf("code HTTP %d, attendu %d (corps : %s)", rec.Code, status, text)
 	}
 	if got := contentType(rec); got != jsonContentType {
 		t.Errorf("Content-Type %q, attendu %q", got, jsonContentType)
 	}
 	var body map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
-		t.Fatalf("corps de l'erreur illisible : %v (corps : %s)", err, rec.Body)
+		t.Fatalf("corps de l'erreur illisible : %v (corps : %s)", err, text)
 	}
 	message, _ := body["message"].(string)
 	if len(body) != 2 || body["error"] != code || message == "" {
-		t.Errorf(`corps %s, attendu {"error": %q, "message": "..."} sans autre champ`, rec.Body, code)
+		t.Errorf(`corps %s, attendu {"error": %q, "message": "..."} sans autre champ`, text, code)
 	}
 	return message
 }

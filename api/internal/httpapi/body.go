@@ -88,12 +88,20 @@ func decodeOne(dec *json.Decoder, v any) error {
 	return errors.New("plusieurs valeurs JSON dans le corps")
 }
 
-// readName débarrasse name de ses espaces de début et de fin, puis le
-// contrôle avec checkName. what désigne le nom dans les messages : « du
-// préparateur », « du profil ». Si le nom est refusé, readName répond 400
-// lui-même et renvoie false.
-func readName(w http.ResponseWriter, name, what string) (string, bool) {
+// parseName débarrasse name de ses espaces de début et de fin, réduit à une
+// seule les espaces ordinaires répétées à l'intérieur, puis le contrôle avec
+// checkName. what est le complément du nom dans les messages, article compris
+// : « du préparateur », « du profil ». Si le nom est refusé, parseName répond
+// 400 lui-même et renvoie false, comme parseID.
+func parseName(w http.ResponseWriter, name, what string) (string, bool) {
 	name = strings.TrimSpace(name)
+	// Une page web affiche plusieurs espaces de suite comme une seule :
+	// « Jean  Pierre » et « Jean Pierre » seraient deux profils identiques à
+	// l'écran. Seule l'espace ordinaire est concernée : les espaces spéciaux
+	// restent refusés par checkName.
+	for strings.Contains(name, "  ") {
+		name = strings.ReplaceAll(name, "  ", " ")
+	}
 	if message := checkName(name, what); message != "" {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest, message)
 		return "", false

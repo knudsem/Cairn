@@ -68,6 +68,10 @@ func open(url string) (*DB, error) {
 	// Nom affiché dans la vue pg_stat_activity de PostgreSQL : on y voit
 	// quelles connexions viennent des tests, celle du verrou comprise.
 	cfg.ConnConfig.RuntimeParams["application_name"] = "cairn-tests"
+	// Une attente de verrou de plus de 5 secondes échoue : une transaction
+	// oubliée par le code testé (Commit ou Rollback manquant) donne une
+	// erreur claire, au lieu de bloquer les tests jusqu'au délai de go test.
+	cfg.ConnConfig.RuntimeParams["lock_timeout"] = "5s"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -87,8 +91,13 @@ func open(url string) (*DB, error) {
 
 	// Le verrou est pris sur une connexion à part, hors du pool : il dure
 	// autant que cette session, et PostgreSQL le libère dès qu'elle se
-	// ferme, même si le programme de test s'arrête brutalement.
-	lock, err := pgx.ConnectConfig(ctx, pool.Config().ConnConfig)
+	// ferme, même si le programme de test s'arrête brutalement. Cette
+	// connexion-là attend sans délai (pas de lock_timeout) : le paquet
+	// précédent peut tourner une minute. pool.Config() renvoie une copie :
+	// le pool garde son réglage.
+	lockCfg := pool.Config().ConnConfig
+	delete(lockCfg.RuntimeParams, "lock_timeout")
+	lock, err := pgx.ConnectConfig(ctx, lockCfg)
 	if err != nil {
 		pool.Close()
 		return nil, connectError(err)
@@ -157,7 +166,10 @@ func Reset(t *testing.T, pool *pgxpool.Pool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for _, sql := range []string{
-		`TRUNCATE order_lines, orders, products, pickers RESTART IDENTITY`,
+		// orders d'abord : TRUNCATE verrouille les tables dans l'ordre de la
+		// liste, et PickLine verrouille la commande avant ses lignes. Le même
+		// ordre évite qu'une remise à zéro et une validation s'interbloquent.
+		`TRUNCATE orders, order_lines, products, pickers RESTART IDENTITY`,
 		`ALTER TABLE orders ALTER COLUMN id RESTART WITH 101`,
 		`ALTER TABLE order_lines ALTER COLUMN id RESTART WITH 201`,
 		`ALTER TABLE pickers ALTER COLUMN id RESTART WITH 301`,

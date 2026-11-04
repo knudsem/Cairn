@@ -27,13 +27,15 @@ type pickerRequest struct {
 
 // createPicker traite POST /api/pickers : le profil est créé et renvoyé,
 // avec le code 201 Created. Le nom suit les mêmes règles que celui du
-// préparateur à l'étape 7 (body.go).
+// préparateur à l'étape 7 (body.go). La réponse n'a pas d'en-tête Location :
+// il n'existe pas d'adresse pour un profil seul (pas de route GET
+// /api/pickers/{id}), et le corps décrit déjà le profil créé.
 func (h *handlers) createPicker(w http.ResponseWriter, r *http.Request) {
 	var body pickerRequest
 	if !readJSON(w, r, &body, `{"name": "Nom du profil"}`) {
 		return
 	}
-	name, ok := readName(w, body.Name, "du profil")
+	name, ok := parseName(w, body.Name, "du profil")
 	if !ok {
 		return
 	}

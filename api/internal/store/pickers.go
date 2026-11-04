@@ -11,14 +11,15 @@ import (
 // ListPickers renvoie les profils de préparateurs, triés par nom.
 func (s *Store) ListPickers(ctx context.Context) ([]Picker, error) {
 	// La collation ICU fr-x-icu donne l'ordre alphabétique français
-	// (« Émile » entre « Bob » et « Ève »), quelle que soit la configuration
-	// du serveur ; la collation C mettrait les majuscules d'abord et les
-	// lettres accentuées à la fin. id départage deux noms que la collation
-	// jugerait égaux.
+	// (« Émile » entre « Bob » et « Ève », « Jean-Yves » avant « Jeanne »),
+	// quelle que soit la configuration du serveur : la collation C mettrait
+	// les majuscules d'abord et les lettres accentuées à la fin. fr-x-icu est
+	// déterministe et l'index unique interdit deux noms identiques : deux
+	// profils ne sont jamais à égalité, l'ordre est donc toujours le même.
 	rows, err := s.pool.Query(ctx, `
 		SELECT id, name, created_at
 		FROM pickers
-		ORDER BY name COLLATE "fr-x-icu", id`)
+		ORDER BY name COLLATE "fr-x-icu"`)
 	if err != nil {
 		return nil, fmt.Errorf("liste des profils : %w", err)
 	}
@@ -63,10 +64,13 @@ func (s *Store) CreatePicker(ctx context.Context, name string) (Picker, error) {
 	}
 
 	// 2. Un nom déjà pris, sans tenir compte des majuscules, l'emporte sur la
-	// limite : le préparateur n'a qu'à choisir ce profil. La recherche sur
-	// lower(name) passe par l'index unique de la table.
+	// limite : le préparateur n'a qu'à choisir ce profil. La recherche
+	// compare la même expression que l'index unique de la table : elle
+	// trouve exactement les noms que l'index refuserait.
 	var existing string
-	err = tx.QueryRow(ctx, `SELECT name FROM pickers WHERE lower(name) = lower($1)`, name).Scan(&existing)
+	err = tx.QueryRow(ctx, `
+		SELECT name FROM pickers
+		WHERE lower(normalize(name, NFC)) = lower(normalize($1, NFC))`, name).Scan(&existing)
 	if err == nil {
 		return Picker{}, &PickerExistsError{Name: existing}
 	}

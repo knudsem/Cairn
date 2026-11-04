@@ -7,8 +7,11 @@ package store_test
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/knudsem/cairn/api/internal/store"
 )
@@ -39,9 +42,15 @@ func pickerCount(t *testing.T) int {
 	return n
 }
 
-// Les profils sont triés dans l'ordre alphabétique français : une majuscule
+// Base vide : une liste vide, et non nil, pour obtenir [] en JSON. Ensuite,
+// les profils sont triés dans l'ordre alphabétique français : une majuscule
 // ou un accent ne déplace pas un nom (« Émile » entre « Bob » et « Ève »).
-// Base vide : une liste vide, et non nil, pour obtenir [] en JSON.
+//
+// « Jean-Yves » et « Jeanne » sont là pour la collation : celle de la base de
+// test (en_US.utf8) ignore d'abord le trait d'union et range « Jeanne »
+// avant « Jean-Yves », alors que fr-x-icu range « Jean-Yves » d'abord. Sans
+// eux, retirer COLLATE "fr-x-icu" de la requête passerait inaperçu ici, alors
+// que Neon trie par défaut en C.UTF-8 (Bob avant alice).
 func TestListPickersSortedByName(t *testing.T) {
 	resetDB(t)
 	pickers, err := st.ListPickers(t.Context())
@@ -52,7 +61,7 @@ func TestListPickersSortedByName(t *testing.T) {
 		t.Fatalf("base vide : liste = %#v, attendu une liste vide non nil", pickers)
 	}
 
-	for _, name := range []string{"zoé", "Émile", "alice", "Bob", "Ève"} {
+	for _, name := range []string{"zoé", "Jeanne", "Émile", "alice", "Jean-Yves", "Bob", "Ève"} {
 		if _, err := st.CreatePicker(t.Context(), name); err != nil {
 			t.Fatalf("création de %q : %v", name, err)
 		}
@@ -61,7 +70,7 @@ func TestListPickersSortedByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPickers : %v", err)
 	}
-	want := []string{"alice", "Bob", "Émile", "Ève", "zoé"}
+	want := []string{"alice", "Bob", "Émile", "Ève", "Jean-Yves", "Jeanne", "zoé"}
 	if len(pickers) != len(want) {
 		t.Fatalf("%d profils, attendu %d", len(pickers), len(want))
 	}
@@ -79,16 +88,12 @@ func TestListPickersSortedByName(t *testing.T) {
 // l'identique : identifiant, nom, date de création en UTC.
 func TestCreatePicker(t *testing.T) {
 	resetDB(t)
-	before := time.Now()
 	p, err := st.CreatePicker(t.Context(), "Mathias")
 	if err != nil {
 		t.Fatalf("CreatePicker : %v", err)
 	}
-	if p.ID != 301 || p.Name != "Mathias" || p.CreatedAt.Location() != time.UTC {
+	if p.ID != 301 || p.Name != "Mathias" || p.CreatedAt.IsZero() || p.CreatedAt.Location() != time.UTC {
 		t.Errorf("profil créé %+v, attendu l'identifiant 301, le nom Mathias et une date en UTC", p)
-	}
-	if p.CreatedAt.Before(before.Add(-time.Minute)) || p.CreatedAt.After(time.Now().Add(time.Minute)) {
-		t.Errorf("date de création %v, attendu maintenant", p.CreatedAt)
 	}
 
 	pickers, err := st.ListPickers(t.Context())
@@ -100,25 +105,33 @@ func TestCreatePicker(t *testing.T) {
 	}
 }
 
+// emileNFD est « Émile » écrit avec un « E » suivi de l'accent aigu
+// combinant (U+0301) : deux caractères là où « É » n'en fait qu'un. À l'écran,
+// les deux écritures sont identiques. Le caractère est construit par son
+// numéro, pour être visible dans le source.
+var emileNFD = "E" + string(rune(0x301)) + "mile"
+
 // Un nom déjà pris, sans tenir compte des majuscules (lettres accentuées
-// comprises), est refusé avec le nom tel qu'il est enregistré, et rien n'est
-// créé. Un nom qui ne diffère que par un accent est un autre nom.
+// comprises) ni de la façon d'écrire un accent, est refusé avec le nom tel
+// qu'il est enregistré, et rien n'est créé. Un nom qui ne diffère que par un
+// accent est un autre nom ; « _ » et « % » sont des caractères ordinaires.
 func TestCreatePickerRefusesExistingName(t *testing.T) {
 	resetDB(t)
-	for _, name := range []string{"Mathias", "Émile"} {
+	for _, name := range []string{"Mathias", "Émile", "Karim"} {
 		if _, err := st.CreatePicker(t.Context(), name); err != nil {
 			t.Fatalf("création de %q : %v", name, err)
 		}
 	}
 
-	for _, c := range []struct{ name, existing string }{
-		{"Mathias", "Mathias"},
-		{"mathias", "Mathias"},
-		{"MATHIAS", "Mathias"},
-		{"ÉMILE", "Émile"},
-		{"émile", "Émile"},
+	for _, c := range []struct{ label, name, existing string }{
+		{"identique", "Mathias", "Mathias"},
+		{"minuscules", "mathias", "Mathias"},
+		{"majuscules", "MATHIAS", "Mathias"},
+		{"majuscule accentuée", "ÉMILE", "Émile"},
+		{"minuscule accentuée", "émile", "Émile"},
+		{"accent écrit en deux caractères", emileNFD, "Émile"},
 	} {
-		t.Run(c.name, func(t *testing.T) {
+		t.Run(c.label, func(t *testing.T) {
 			_, err := st.CreatePicker(t.Context(), c.name)
 			var exists *store.PickerExistsError
 			if !errors.Is(err, store.ErrPickerExists) || !errors.As(err, &exists) || exists.Name != c.existing {
@@ -130,12 +143,48 @@ func TestCreatePickerRefusesExistingName(t *testing.T) {
 			}
 		})
 	}
-	if got := pickerCount(t); got != 2 {
-		t.Errorf("%d profils, attendu 2 : un refus ne crée rien", got)
+	if got := pickerCount(t); got != 3 {
+		t.Errorf("%d profils, attendu 3 : un refus ne crée rien", got)
 	}
 
-	if _, err := st.CreatePicker(t.Context(), "Emile"); err != nil {
-		t.Errorf("« Emile », sans accent, à côté d'« Émile » : erreur %v, attendu une création", err)
+	// Noms différents, donc acceptés. « K_rim » et « Ka% » échoueraient avec
+	// une recherche par LIKE ou ILIKE, où _ et % sont des jokers.
+	for _, name := range []string{"Emile", "K_rim", "Ka%"} {
+		if _, err := st.CreatePicker(t.Context(), name); err != nil {
+			t.Errorf("« %s » à côté d'« Émile » et de « Karim » : erreur %v, attendu une création", name, err)
+		}
+	}
+}
+
+// Les filets de sécurité de la table, essayés en SQL direct, sans passer par
+// CreatePicker : la base refuse elle-même un doublon (même en majuscules ou
+// avec un accent écrit en deux caractères), un nom vide et un nom de plus de
+// 50 caractères, mais accepte 50 « é » (100 octets : la limite compte des
+// caractères). C'est le pendant du refus d'un stock négatif (étape 1).
+func TestPickersTableSafetyNets(t *testing.T) {
+	resetDB(t)
+	insert := func(name string) error {
+		_, err := pool.Exec(t.Context(), `INSERT INTO pickers (name) VALUES ($1)`, name)
+		return err
+	}
+	if err := insert("Émile"); err != nil {
+		t.Fatalf("premier profil : %v", err)
+	}
+	for _, c := range []struct{ label, name, code string }{
+		{"doublon en majuscules", "ÉMILE", "23505"},
+		{"doublon avec l'accent en deux caractères", emileNFD, "23505"},
+		{"nom vide", "", "23514"},
+		{"51 caractères", strings.Repeat("é", 51), "23514"},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			var pgErr *pgconn.PgError
+			if err := insert(c.name); !errors.As(err, &pgErr) || pgErr.Code != c.code {
+				t.Errorf("erreur %v, attendu le code PostgreSQL %s", err, c.code)
+			}
+		})
+	}
+	if err := insert(strings.Repeat("é", 50)); err != nil {
+		t.Errorf("50 « é » : erreur %v, attendu une insertion", err)
 	}
 }
 

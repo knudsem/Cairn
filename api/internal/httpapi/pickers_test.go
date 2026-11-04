@@ -3,12 +3,15 @@ package httpapi_test
 // Tests de GET et POST /api/pickers (docs/PLAN.md, étape 7 bis) : réponses,
 // conflits, contrôle du corps et du nom, panne de base. Les règles du nom
 // sont celles de l'étape 7 (body.go) : pick_test.go les teste toutes, ce
-// fichier vérifie chacune une fois pour cette route.
+// fichier vérifie chacune une fois pour cette route, ainsi que la limite de
+// 50 caractères, que la base vérifie aussi pour les profils.
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -26,8 +29,8 @@ type pickerJSON struct {
 	CreatedAt string `json:"createdAt"`
 }
 
-// createPicker envoie POST /api/pickers avec body comme corps JSON.
-func createPicker(t *testing.T, body string) *httptest.ResponseRecorder {
+// postPicker envoie POST /api/pickers avec body comme corps JSON.
+func postPicker(t *testing.T, body string) *httptest.ResponseRecorder {
 	t.Helper()
 	return request(t, handler, http.MethodPost, "/api/pickers", "application/json", body)
 }
@@ -42,23 +45,40 @@ func pickerCount(t *testing.T) int {
 	return n
 }
 
+// checkPickerFields vérifie qu'un profil en JSON a exactement les champs id,
+// name et createdAt, à la majuscule près. Le décodage dans pickerJSON ne
+// suffit pas : encoding/json accepte aussi une clé « Name » ou « NAME » pour
+// le champ name.
+func checkPickerFields(t *testing.T, raw json.RawMessage) {
+	t.Helper()
+	var fields map[string]any
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		t.Fatalf("profil illisible : %v (%s)", err, raw)
+	}
+	keys := slices.Sorted(maps.Keys(fields))
+	if want := []string{"createdAt", "id", "name"}; !slices.Equal(keys, want) {
+		t.Errorf("champs %v, attendu %v", keys, want)
+	}
+}
+
 // GET /api/pickers : [] sans profil, puis les profils triés par nom, quel que
-// soit l'ordre de création.
+// soit l'ordre de création, chacun avec exactement ses trois champs.
 func TestListPickersRoute(t *testing.T) {
 	setup(t)
 	rec := get(t, "/api/pickers")
 	var pickers []pickerJSON
 	decodeJSON(t, rec, &pickers)
 	if strings.TrimSpace(rec.Body.String()) != "[]" {
-		t.Errorf("sans profil : corps %s, attendu []", rec.Body)
+		t.Errorf("sans profil : corps %s, attendu []", strings.TrimSpace(rec.Body.String()))
 	}
 
 	for _, name := range []string{"Virginie", "Mathias", "Romain"} {
-		if rec := createPicker(t, `{"name": "`+name+`"}`); rec.Code != http.StatusCreated {
+		if rec := postPicker(t, `{"name": "`+name+`"}`); rec.Code != http.StatusCreated {
 			t.Fatalf("création de %s : code %d (corps : %s)", name, rec.Code, rec.Body)
 		}
 	}
-	decodeJSON(t, get(t, "/api/pickers"), &pickers)
+	rec = get(t, "/api/pickers")
+	decodeJSON(t, rec, &pickers)
 	want := []pickerJSON{{ID: 302, Name: "Mathias"}, {ID: 303, Name: "Romain"}, {ID: 301, Name: "Virginie"}}
 	if len(pickers) != len(want) {
 		t.Fatalf("%d profils, attendu %d", len(pickers), len(want))
@@ -68,23 +88,25 @@ func TestListPickersRoute(t *testing.T) {
 			t.Errorf("position %d : %d %q, attendu %d %q", i+1, pickers[i].ID, pickers[i].Name, w.ID, w.Name)
 		}
 	}
+	var raw []json.RawMessage
+	if err := json.Unmarshal(rec.Body.Bytes(), &raw); err != nil || len(raw) == 0 {
+		t.Fatalf("liste illisible : %v", err)
+	}
+	checkPickerFields(t, raw[0])
 }
 
 // POST /api/pickers : 201 et le profil créé, avec exactement ses trois
 // champs ; le nom est enregistré sans ses espaces de début et de fin.
 func TestCreatePickerRoute(t *testing.T) {
 	setup(t)
-	rec := createPicker(t, `{"name": "  Karim  "}`)
+	rec := postPicker(t, `{"name": "  Karim  "}`)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("code HTTP %d, attendu 201 (corps : %s)", rec.Code, rec.Body)
 	}
 	if got := contentType(rec); got != jsonContentType {
 		t.Errorf("Content-Type %q, attendu %q", got, jsonContentType)
 	}
-	var fields map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &fields); err != nil || len(fields) != 3 {
-		t.Errorf("corps %s, attendu un objet à trois champs (id, name, createdAt)", rec.Body)
-	}
+	checkPickerFields(t, rec.Body.Bytes())
 	var p pickerJSON
 	if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil {
 		t.Fatalf("corps illisible : %v", err)
@@ -97,25 +119,57 @@ func TestCreatePickerRoute(t *testing.T) {
 	}
 }
 
+// Noms acceptés à la limite et nettoyés : 50 « é » (100 octets : l'API et la
+// base comptent des caractères), entourés d'espaces ou non, et des espaces
+// doublées au milieu, réduites à une seule.
+func TestCreatePickerAcceptedNames(t *testing.T) {
+	fifty := strings.Repeat("é", 50)
+	for _, c := range []struct{ label, name, stored string }{
+		{"50 caractères accentués", fifty, fifty},
+		{"50 caractères accentués entourés d'espaces", "  " + fifty + "  ", fifty},
+		{"espaces doublées au milieu", "Jean   Pierre", "Jean Pierre"},
+	} {
+		t.Run(c.label, func(t *testing.T) {
+			setup(t)
+			rec := postPicker(t, `{"name": "`+c.name+`"}`)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("code HTTP %d, attendu 201 (corps : %s)", rec.Code, rec.Body)
+			}
+			var p pickerJSON
+			if err := json.Unmarshal(rec.Body.Bytes(), &p); err != nil || p.Name != c.stored {
+				t.Errorf("nom enregistré %q (erreur %v), attendu %q", p.Name, err, c.stored)
+			}
+		})
+	}
+}
+
 // Les deux conflits : 409 profil_existant, avec le nom tel qu'il est
 // enregistré, et 409 trop_de_profils à partir de 20 profils.
 func TestCreatePickerConflicts(t *testing.T) {
 	setup(t)
-	if rec := createPicker(t, `{"name": "Mathias"}`); rec.Code != http.StatusCreated {
-		t.Fatalf("création de Mathias : code %d (corps : %s)", rec.Code, rec.Body)
+	for _, name := range []string{"Mathias", "Jean Pierre"} {
+		if rec := postPicker(t, `{"name": "`+name+`"}`); rec.Code != http.StatusCreated {
+			t.Fatalf("création de %s : code %d (corps : %s)", name, rec.Code, rec.Body)
+		}
 	}
-	if got := checkError(t, createPicker(t, `{"name": "mathias"}`), http.StatusConflict, "profil_existant"); got != "Le profil « Mathias » existe déjà." {
-		t.Errorf("message %q", got)
+	for _, c := range []struct{ name, message string }{
+		{"mathias", "Le profil « Mathias » existe déjà."},
+		{"Jean  Pierre", "Le profil « Jean Pierre » existe déjà."},
+	} {
+		if got := checkError(t, postPicker(t, `{"name": "`+c.name+`"}`), http.StatusConflict, "profil_existant"); got != c.message {
+			t.Errorf("%q : message %q, attendu %q", c.name, got, c.message)
+		}
 	}
 
-	// 19 profils de plus, en SQL : la table est pleine.
+	// 18 profils de plus, en SQL : la table est pleine.
 	if _, err := pool.Exec(t.Context(), `
 		INSERT INTO pickers (name)
-		SELECT 'Profil ' || lpad(g::text, 2, '0') FROM generate_series(1, 19) AS g`); err != nil {
+		SELECT 'Profil ' || lpad(g::text, 2, '0') FROM generate_series(1, 18) AS g`); err != nil {
 		t.Fatalf("remplissage : %v", err)
 	}
-	if got := checkError(t, createPicker(t, `{"name": "Nouveau"}`), http.StatusConflict, "trop_de_profils"); got != "20 profils au maximum : impossible d'en créer un autre." {
-		t.Errorf("message %q", got)
+	const full = "20 profils au maximum : impossible d'en créer un autre."
+	if got := checkError(t, postPicker(t, `{"name": "Nouveau"}`), http.StatusConflict, "trop_de_profils"); got != full {
+		t.Errorf("message %q, attendu %q", got, full)
 	}
 	if got := pickerCount(t); got != 20 {
 		t.Errorf("%d profils, attendu 20", got)

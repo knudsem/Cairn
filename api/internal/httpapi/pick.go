@@ -28,12 +28,12 @@ func (h *handlers) pickLine(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Contrôle du corps et du nom : body.go, commun avec la création d'un
-	// profil.
+	// profil (étape 7 bis).
 	var body pickRequest
 	if !readJSON(w, r, &body, `{"picker": "Nom du préparateur"}`) {
 		return
 	}
-	picker, ok := readName(w, body.Picker, "du préparateur")
+	picker, ok := parseName(w, body.Picker, "du préparateur")
 	if !ok {
 		return
 	}

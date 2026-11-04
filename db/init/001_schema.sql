@@ -53,6 +53,8 @@ CREATE TABLE pickers (
 );
 
 -- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS » ne
--- peuvent pas coexister. Un index sur l'expression lower(name) sert aussi à
--- chercher un nom de cette façon.
-CREATE UNIQUE INDEX pickers_name_lower_key ON pickers (lower(name));
+-- peuvent pas coexister. normalize(name, NFC) ramène d'abord les deux façons
+-- d'écrire une lettre accentuée (« é » en un caractère, ou « e » suivi de
+-- l'accent) à la même forme : sinon, deux « Émile » identiques à l'écran
+-- pourraient coexister.
+CREATE UNIQUE INDEX pickers_name_key ON pickers (lower(normalize(name, NFC)));

@@ -1,6 +1,7 @@
 // Package store regroupe l'accès à la base PostgreSQL de Cairn : les types
-// métier, leurs lectures (queries.go) et les erreurs métier. Il parle SQL et
-// ignore tout de HTTP.
+// métier et les erreurs métier (ce fichier), les lectures (queries.go), la
+// validation d'une ligne (pick.go) et les profils de préparateurs
+// (pickers.go). Il parle SQL et ignore tout de HTTP.
 package store
 
 import (
@@ -67,6 +68,15 @@ func (e *InsufficientStockError) Is(target error) bool {
 	return target == ErrInsufficientStock
 }
 
+// countOf écrit un nombre suivi de son mot, au pluriel à partir de 2, comme
+// le veut le français : « 0 disponible », « 1 disponible », « 3 disponibles ».
+func countOf(n int, word string) string {
+	if n >= 2 {
+		word += "s"
+	}
+	return fmt.Sprintf("%d %s", n, word)
+}
+
 // MaxPickers est le nombre maximal de profils de préparateurs (docs/PLAN.md,
 // étape 7 bis). Sans authentification, n'importe qui peut créer un profil :
 // la limite empêche de remplir la table.
@@ -92,15 +102,6 @@ func (e *PickerExistsError) Error() string {
 // Is fait reconnaître cette erreur par errors.Is(err, ErrPickerExists).
 func (e *PickerExistsError) Is(target error) bool {
 	return target == ErrPickerExists
-}
-
-// countOf écrit un nombre suivi de son mot, au pluriel à partir de 2, comme
-// le veut le français : « 0 disponible », « 1 disponible », « 3 disponibles ».
-func countOf(n int, word string) string {
-	if n >= 2 {
-		word += "s"
-	}
-	return fmt.Sprintf("%d %s", n, word)
 }
 
 // Store donne accès à la base par un pool de connexions.

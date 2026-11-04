@@ -83,7 +83,7 @@ Cairn/
     Dockerfile
     internal/
       store/
-        store.go               types (Order, Line, Product) et erreurs métier
+        store.go               types (Order, Line, Product, Picker) et erreurs métier
         queries.go             lectures : liste, détail, produits
         pick.go                règle métier : PickLine, une transaction
         pickers.go             profils de préparateurs : liste et création (étape 7 bis)
@@ -186,8 +186,9 @@ CREATE TABLE pickers (
 );
 
 -- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS »
--- ne peuvent pas coexister.
-CREATE UNIQUE INDEX pickers_name_lower_key ON pickers (lower(name));
+-- ne peuvent pas coexister. normalize(name, NFC) ramène d'abord les deux
+-- façons d'écrire une lettre accentuée à la même forme.
+CREATE UNIQUE INDEX pickers_name_key ON pickers (lower(normalize(name, NFC)));
 ```
 
 ### 3.2 Choix de modélisation
@@ -201,7 +202,7 @@ CREATE UNIQUE INDEX pickers_name_lower_key ON pickers (lower(name));
 | `picked_at` et contrainte de cohérence | L'état « préparée » se déduit de `picked_at`, sans booléen redondant. La contrainte interdit une date sans préparateur, et inversement. |
 | Index sur `order_lines(order_id)` | PostgreSQL n'indexe pas automatiquement les clés étrangères. |
 | `timestamptz` | Date avec fuseau horaire, recommandée par PostgreSQL. |
-| Index unique sur `lower(pickers.name)` | L'unicité sans tenir compte des majuscules est garantie par la base, même pour deux créations simultanées. Avec la configuration de l'image Docker (`en_US.utf8`), `lower()` traite aussi les lettres accentuées : `lower('ÉMILE')` donne `émile` (vérifié). À revérifier sur Neon (étape 11). |
+| Index unique sur `lower(normalize(pickers.name, NFC))` | L'unicité sans tenir compte des majuscules est garantie par la base, même pour deux créations simultanées. `normalize(..., NFC)` (fonction `IMMUTABLE` de PostgreSQL, utilisable dans un index) ramène « é » écrit en un caractère et « e » suivi de l'accent combinant à la même forme : sinon, deux « Émile » identiques à l'écran pourraient coexister. Avec la configuration de l'image Docker (`en_US.utf8`), `lower()` traite aussi les lettres accentuées : `lower('ÉMILE')` donne `émile` (vérifié). À revérifier sur Neon (étape 11). |
 | `picked_by` reste un texte, sans clé étrangère vers `pickers` | Le nom du profil est recopié au moment de la validation : l'historique d'une ligne ne dépend pas du profil, même s'il est un jour renommé ou supprimé. La validation (étape 7) n'exige pas un profil existant : sans authentification, cette vérification ne protégerait rien. |
 | `CHECK` sur la longueur du nom | Filet de sécurité, comme pour le stock : l'API valide le nom (étape 7), la base refuse quand même un nom vide ou trop long. |
 
@@ -298,8 +299,10 @@ Trois profils de préparateurs (étape 7 bis), insérés dans cet ordre : « Mat
 **Remise à zéro de la démonstration** (locale), en une seule transaction, qui remet exactement ces données, les trois profils compris :
 
 ```powershell
-docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products, pickers RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql
+docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE orders, order_lines, products, pickers RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql
 ```
+
+`orders` vient en premier : `TRUNCATE` verrouille les tables dans l'ordre de sa liste, et `PickLine` verrouille la commande avant ses lignes. Dans l'autre ordre, une remise à zéro pendant une validation pourrait s'interbloquer avec elle (relevé par la relecture de l'étape 7 bis).
 
 ### 3.5 Évolutions optionnelles
 
@@ -391,6 +394,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 - **Erreurs du routeur en texte brut** : une route inconnue (404) ou une méthode non prévue (405) reçoit une réponse `text/plain`, hors du format JSON unique. Le client ne lit donc le JSON d'une erreur que si la réponse est de type `application/json` ; sinon il affiche un message générique. La même règle couvre la page d'attente de Render (étape 11).
 - **Paramètres validés** : une chaîne de requête mal formée (`?status=%zz`) ou un paramètre répété donne 400, au lieu d'être ignoré.
 - **Chemins non canoniques** : un chemin qui contient `//` ou `..` reçoit du routeur une redirection 307 vers le chemin nettoyé, sans corps JSON. La règle des erreurs du routeur s'applique aussi : JSON lu seulement si la réponse est de type `application/json`.
+- **201 sans en-tête `Location`** : la création d'un profil renvoie 201 et le profil créé, sans l'en-tête `Location` qui donne d'habitude l'adresse de la nouvelle ressource. Il n'existe pas d'adresse pour un profil seul (pas de route `GET /api/pickers/{id}`), et le corps décrit déjà le profil.
 
 ---
 
@@ -588,8 +592,8 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
   - une première validation renvoie 200 et la commande mise à jour ;
   - la même validation renvoie ensuite 409 `deja_preparee` ;
   - une ligne de CMD-0004 renvoie 409 `stock_insuffisant` ;
-  - un nom de préparateur contenant `\u0000` renvoie 400 `requete_invalide` ;
-  - remise à zéro de la base de démonstration, en une seule transaction : `docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql`. Depuis l'étape 7 bis, la commande vide aussi `pickers` : voir la section 3.4.
+  - un nom de préparateur contenant le caractère NUL (U+0000) renvoie 400 `requete_invalide` ;
+  - remise à zéro de la base de démonstration, en une seule transaction : la commande de la section 3.4.
 
 ### Étape 7 bis : profils de préparateurs (3 h 30)
 
@@ -600,27 +604,29 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 - **Base :**
   - table `pickers` dans `db/init/001_schema.sql` (section 3.1) ; trois profils de départ dans `002_seed.sql` ; les lignes déjà préparées passent à « Romain » (CMD-0005) et à « Virginie » (CMD-0006) ;
   - la table entre dans `001_schema.sql`, et non dans un script `003` (section 3.5), car le projet n'est pas encore livré. Une seule fois, la base locale est donc recréée (`docker compose down -v`, puis `docker compose up -d --build --wait`), ainsi que la base de test (`docker compose up -d --force-recreate --wait db-test`) ;
-  - remise à zéro de la démonstration : `pickers` s'ajoute au `TRUNCATE` (section 3.4). Côté tests, `testdb.Reset` vide aussi `pickers`, dont les identifiants repartent de 301.
+  - remise à zéro de la démonstration : `pickers` s'ajoute au `TRUNCATE`, et `orders` passe en tête (section 3.4). Côté tests, `testdb.Reset` fait de même, et les identifiants des profils repartent de 301.
 - **Store (`store/pickers.go`) :**
-  - `ListPickers` : `ORDER BY name COLLATE "fr-x-icu", id`. La collation ICU donne l'ordre alphabétique français, sans tenir compte des majuscules, quelle que soit la configuration du serveur. Vérifié sur l'image Docker : « alice, Bob, Émile, Ève, zoé, Zoé », alors que la collation `C` donnerait « Bob, Zoé, alice, zoé, Ève, Émile ». À revérifier sur Neon (étape 11) ;
-  - `CreatePicker` : une transaction qui verrouille d'abord la table (`LOCK TABLE pickers IN SHARE ROW EXCLUSIVE MODE` : les lectures continuent, deux créations passent l'une après l'autre), cherche un nom identique sans tenir compte des majuscules (`ErrPickerExists`, avec le nom existant), compte les profils (`ErrTooManyPickers` à partir de 20), puis insère. Un nom existant l'emporte sur la limite. Sans le verrou, deux créations simultanées à 19 profils pourraient en faire 21 ; l'index unique reste le filet de sécurité des doublons ;
+  - `ListPickers` : `ORDER BY name COLLATE "fr-x-icu"`. La collation ICU donne l'ordre alphabétique français, sans tenir compte des majuscules, quelle que soit la configuration du serveur. Vérifié sur l'image Docker : « alice, Bob, Émile, Ève, zoé, Zoé », alors que la collation `C` donnerait « Bob, Zoé, alice, zoé, Ève, Émile ». La collation par défaut de l'image (`en_US.utf8`) donne le même ordre sur ces noms ; elle diffère sur les traits d'union et les espaces (« Jeanne » avant « Jean-Yves ») : le test du tri contient ces deux noms, pour que le retrait du `COLLATE` se voie aussi sur la base de test. À revérifier sur Neon (étape 11), qui trie par défaut en `C.UTF-8` ;
+  - `CreatePicker` : une transaction qui verrouille d'abord la table (`LOCK TABLE pickers IN SHARE ROW EXCLUSIVE MODE` : les lectures continuent, deux créations passent l'une après l'autre), cherche un nom identique avec la même expression que l'index unique (`ErrPickerExists`, avec le nom existant), compte les profils (`ErrTooManyPickers` à partir de 20), puis insère. Un nom existant l'emporte sur la limite. Sans le verrou, deux créations simultanées à 19 profils pourraient en faire 21 ; l'index unique reste le filet de sécurité des doublons ;
   - dates en UTC, comme à l'étape 4.
 - **API (`httpapi/pickers.go`) :**
   - `GET /api/pickers` : 200 et la liste, `[]` si elle est vide ;
-  - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes, dans `httpapi/body.go` ; sa réorganisation est couverte par les tests de l'étape 7, dont les messages attendus n'ont pas changé. Réponse 201 et le profil créé ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
+  - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes, dans `httpapi/body.go` ; sa réorganisation est couverte par les tests de l'étape 7, dont les messages attendus n'ont pas changé. Règle ajoutée pour les deux routes : les espaces ordinaires répétées à l'intérieur d'un nom sont réduites à une seule, car une page web les affiche comme une seule (« Jean  Pierre » et « Jean Pierre » seraient deux profils identiques à l'écran). Réponse 201 et le profil créé, sans en-tête `Location` (section 4.4) ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
 - **Tests, sur la base de test :**
-  - store : tri par nom (majuscules et accents), liste vide `[]`, création, doublon sans tenir compte des majuscules (« mathias » face à « Mathias », « ÉMILE » face à « Émile »), limite (le 20e profil passe, le 21e est refusé) ;
-  - concurrence : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;
-  - HTTP : 200, 201, 400 (chaque règle du nom, comme à l'étape 7), 409 `profil_existant` et `trop_de_profils`, 500 sans détail technique, 405 pour une autre méthode, format JSON des erreurs ;
-  - contrôle par mutations, comme aux étapes 6 et 7 ; en particulier, sans le `LOCK TABLE`, le test de concurrence doit échouer.
-- **Notions Go et SQL :** `LOCK TABLE` et ses modes de verrou, index sur une expression, collation ICU, réponse 201 Created.
-- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Karim » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; après la remise à zéro, les trois profils d'origine reviennent.
+  - store : tri par nom (majuscules, accents, « Jean-Yves » et « Jeanne »), liste vide `[]`, création, doublon sans tenir compte des majuscules ni de l'écriture de l'accent (« mathias » face à « Mathias », « ÉMILE » et « Émile » écrit avec l'accent combinant face à « Émile »), noms proches acceptés (« Emile », « K_rim », « Ka% »), limite (le 20e profil passe, le 21e est refusé) ;
+  - filets de sécurité de la base, par des `INSERT` directs : un doublon (majuscules ou accent combinant) est refusé par l'index unique, un nom vide ou de 51 caractères par le `CHECK`, et 50 « é » passent ;
+  - concurrence, sur 10 tours : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;
+  - HTTP : 200, 201 (le profil a exactement les champs `id`, `name` et `createdAt`), noms acceptés à la limite (50 « é », espaces doublées réduites), 400 (chaque règle du nom, comme à l'étape 7), 409 `profil_existant` et `trop_de_profils`, 500 sans détail technique, 405 pour une autre méthode, format JSON des erreurs ;
+  - `testdb` : un `lock_timeout` de 5 s sur les connexions des tests, pour qu'un verrou jamais relâché fasse échouer un test au lieu de le bloquer ;
+  - contrôle par mutations, comme aux étapes 6 et 7 : 43 mutations, toutes détectées. 38 touchent le code (dont le retrait du `LOCK TABLE`, du `COLLATE` ou de `normalize`, une recherche par `ILIKE`, un nom de champ JSON en majuscule, l'oubli du `Rollback`) et 5 le schéma, chargé dans une base jetable (index sans `normalize`, sensible à la casse ou retiré, `CHECK` en octets ou retiré).
+- **Notions Go et SQL :** `LOCK TABLE` et ses modes de verrou, index sur une expression, normalisation Unicode (NFC), collation ICU, réponse 201 Created.
+- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Karim » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; « Jean   Pierre » est enregistré « Jean Pierre » ; après la remise à zéro, les trois profils d'origine reviennent.
 
 #### 7 bis.2 : écran « Qui prépare ? » (1 h 30)
 
 - **Contenu :**
   - écran « Qui prépare ? » (`/pickers`) : les profils de l'API en gros boutons (64 px de haut au moins), dans l'ordre de l'API, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler » ;
-  - « Créer » : en cas de succès, le nouveau profil est choisi d'office ; sinon, un message sous le champ, choisi d'après le code d'erreur : « Ce profil existe déjà : choisissez-le dans la liste. », « 20 profils au maximum : choisissez un profil existant. », ou le message de l'API pour un nom refusé ;
+  - « Créer » est désactivé pendant l'appel, pour ne pas envoyer deux fois la même création. En cas de succès, le nouveau profil est choisi d'office, avec le nom renvoyé par l'API (nettoyé de ses espaces en trop) et non le texte saisi ; sinon, un message sous le champ, choisi d'après le code d'erreur : « Ce profil existe déjà : choisissez-le dans la liste. », « 20 profils au maximum : choisissez un profil existant. », ou le message de l'API pour un nom refusé ;
   - `PickerState` (service « scoped ») garde le profil choisi pour la session. Une page ouverte sans profil choisi renvoie vers « Qui prépare ? », puis vers la page demandée (une adresse relative seulement) ;
   - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui ramène à « Qui prépare ? » ;
   - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient`, JSON d'une erreur lu seulement si la réponse est de type `application/json`, `JsonException` sans coupure du circuit Blazor, état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
@@ -700,7 +706,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 - `render.yaml` (Blueprint), à la racine : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
   - `cairn-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
   - `cairn-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API (`fromService` avec `envVarKey: RENDER_EXTERNAL_URL` ; si Render ne la fournit pas, l'URL copiée depuis le tableau de bord) ; `ApiTimeoutSeconds=90`.
-- `db/reset.sql` : supprime les quatre tables (profils compris), puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
+- `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
 - `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle ; si l'API répond par la page d'attente de Render plutôt que par son JSON, message « démarrage en cours » plutôt que « base indisponible ».
 
 **Secrets :** l'URL de connexion Neon contient le mot de passe. Elle n'est jamais écrite dans le dépôt : avec `sync: false`, le tableau de bord de Render demande sa valeur à la création du Blueprint, et le script de remise à zéro la lit dans une variable d'environnement de la session PowerShell. On prend la chaîne directe de Neon (bouton « Connection pooling » désactivé : pgxpool regroupe déjà les connexions), avec `sslmode=require&channel_binding=require`. Neon refuse les connexions sans TLS. pgx doit être en version 5.12.0 au moins (c'est le cas) : il gère `channel_binding` depuis la 5.9, et la 5.12.0 corrige un contournement de `channel_binding=require`.
@@ -724,7 +730,7 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 
 - depuis un téléphone en 4G, donc hors du réseau local : `https://<web>.onrender.com` affiche le cadenas HTTPS, le logo et la liste des commandes ;
 - parcours complet : choix d'un profil, CMD-0001 jusqu'à « prête », refus de stock insuffisant sur CMD-0004 ;
-- profils : tri et unicité sans tenir compte des majuscules vérifiés sur Neon, dont la configuration peut différer de l'image Docker (collation `fr-x-icu`, `lower()` sur une lettre accentuée) ;
+- profils : vérifiés sur Neon, dont la configuration peut différer de l'image Docker (collation par défaut `C.UTF-8`) : la collation `fr-x-icu` existe (sinon `GET /api/pickers` renverrait 500), le tri place « Émile » avant « Ève » et « Jean-Yves » avant « Jeanne », `lower()` traite une lettre accentuée et l'index avec `normalize` refuse un doublon. Si le temps le permet, les tests Go sont lancés sur une base `cairn_test` créée sur Neon ;
 - après plus de 15 minutes sans visite : page d'attente de Render, puis l'application, sans « API injoignable » ; durée du réveil notée ;
 - remise à zéro avec `db/reset.sql`, puis rechargement : données de démonstration d'origine ;
 - journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep neon.tech` ne trouve rien).
