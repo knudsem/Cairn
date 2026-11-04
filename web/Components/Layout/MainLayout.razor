@@ -1,6 +1,7 @@
 @inherits LayoutComponentBase
 @inject PickerState PickerState
 @inject NavigationManager Nav
+@inject ApiWakeUp ApiWakeUp
 
 @* Mise en page commune : la barre du haut (logo, profil choisi, « Changer »),
    puis la page affichée (@Body). *@
@@ -28,6 +29,18 @@
 </main>
 
 @code {
+    // Premier affichage : le navigateur réveille l'API, au cas où elle dort
+    // (Api/ApiWakeUp.cs). MainLayout est interactif, comme tout ce que
+    // Routes affiche (rendermode dans App.razor) : l'interop JavaScript y
+    // fonctionne après le rendu.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await ApiWakeUp.WakeUpAsync();
+        }
+    }
+
     // « Changer » oublie le profil, puis ouvre « Qui prépare ? », qui ramènera
     // à la page actuelle une fois un profil choisi. L'adresse de retour est
     // calculée avant la navigation, sur la page actuelle.

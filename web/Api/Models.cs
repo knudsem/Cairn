@@ -3,19 +3,6 @@ using System.Globalization;
 
 namespace Cairn.Web.Api;
 
-/// <summary>État de l'API, tel que l'interface le voit.</summary>
-public enum ApiHealth
-{
-    /// <summary>L'API et la base de données répondent (200).</summary>
-    Ok,
-
-    /// <summary>L'API répond, mais pas la base de données (503).</summary>
-    DatabaseUnavailable,
-
-    /// <summary>L'API ne répond pas, ou répond de façon inattendue.</summary>
-    Unreachable,
-}
-
 /// <summary>
 /// Profil de préparateur, tel que l'API l'envoie :
 /// {"id": 1, "name": "Mathias", "createdAt": "2026-11-04T07:00:00Z"}.
@@ -107,12 +94,20 @@ public enum ApiErrorKind
     /// <summary>Pas de réponse : API arrêtée, réseau coupé, délai dépassé.</summary>
     Unreachable,
 
+    /// <summary>
+    /// L'API démarre : un intermédiaire répond à sa place, par un code 502,
+    /// 503 ou 504, ou par une réponse qui n'est pas du JSON (page HTML). Sur
+    /// Render, l'interface reçoit un 502 tant que l'API dort (docs/PLAN.md,
+    /// étape 11 bis).
+    /// </summary>
+    Starting,
+
     /// <summary>L'API a répondu par une erreur au format prévu (Code et Message renseignés).</summary>
     Rejected,
 
     /// <summary>
-    /// L'API a répondu, mais pas comme prévu : autre code HTTP, JSON illisible
-    /// ou incomplet, page HTML d'un intermédiaire.
+    /// L'API a répondu en JSON, mais pas comme prévu : JSON illisible ou
+    /// incomplet, ou erreur qui n'est pas au format prévu.
     /// </summary>
     Unexpected,
 }
@@ -125,6 +120,13 @@ public enum ApiErrorKind
 public record ApiError(ApiErrorKind Kind, int? Status = null, string? Code = null, string? Message = null)
 {
     /// <summary>
+    /// Message affiché pendant qu'une lecture attend le démarrage de l'API : à
+    /// la place de « Chargement... », ou en bas de l'écran si la page reste
+    /// affichée (Actualiser, relecture après une validation).
+    /// </summary>
+    public const string StartingWaitMessage = "Cairn démarre. Cela peut prendre une minute.";
+
+    /// <summary>
     /// Message à afficher quand la page n'en prévoit pas de plus précis pour ce
     /// code d'erreur. Les messages de l'API sont écrits pour le préparateur :
     /// ils sont repris tels quels.
@@ -133,9 +135,7 @@ public record ApiError(ApiErrorKind Kind, int? Status = null, string? Code = nul
     {
         { Kind: ApiErrorKind.Rejected, Message: { } message } => message,
         { Kind: ApiErrorKind.Unreachable } => "Le serveur ne répond pas. Réessayez dans un instant.",
-        // 503 sans le JSON de l'API : en ligne, la page d'attente de
-        // l'hébergeur pendant le réveil du service (docs/PLAN.md, étape 11).
-        { Kind: ApiErrorKind.Unexpected, Status: 503 } => "Le serveur démarre. Réessayez dans une minute.",
+        { Kind: ApiErrorKind.Starting } => "Cairn démarre. Réessayez dans un instant.",
         _ => "Le serveur a envoyé une réponse inattendue. Réessayez dans un instant.",
     };
 }

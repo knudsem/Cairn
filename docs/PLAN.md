@@ -726,7 +726,7 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 
 **Contraintes de l'offre gratuite qui orientent les choix :**
 
-- un service s'endort après 15 minutes sans trafic entrant (requêtes HTTP ou messages WebSocket) et met environ une minute à se réveiller ; le navigateur voit pendant ce temps une page d'attente de Render. Ce que reçoit un client qui n'est pas un navigateur (l'interface qui appelle l'API) n'est pas documenté : probablement un 503, à mesurer ;
+- un service s'endort après 15 minutes sans trafic entrant (requêtes HTTP ou messages WebSocket) et met environ une minute à se réveiller ; le navigateur voit pendant ce temps une page d'attente de Render. Ce que reçoit un client qui n'est pas un navigateur (l'interface qui appelle l'API) n'est pas documenté. Mesuré le 4 novembre (étape 11 bis) : un client extérieur sans en-têtes de navigateur est retenu pendant le réveil, puis reçoit la vraie réponse ; mais l'interface, hébergée chez Render, reçoit un 502 et ne réveille pas l'API ;
 - 750 heures gratuites par mois pour tout le compte, partagées entre les deux services ; épuisées, elles suspendent tout jusqu'au mois suivant. Deux services éveillés en permanence les épuisent vers le 16e jour ;
 - un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement : n'importe qui peut valider des lignes ou créer des profils, jusqu'à 20 (étape 7 bis). C'est la conséquence assumée de l'absence d'authentification ; la remise à zéro ramène les données et les trois profils d'origine ;
 - pas de commande « pre-deploy », de shell ni de tâche ponctuelle : le schéma et les données s'appliquent depuis le poste, avec psql ;
@@ -739,7 +739,7 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
   - `cairn-knudsem-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
   - `cairn-knudsem-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API, avec `sync: false` : saisie à la création du Blueprint (`https://cairn-knudsem-api.onrender.com/`), puis corrigée dans le tableau de bord si Render a donné une autre adresse au service. `fromService` ne fournit que l'adresse privée, inutilisable par un service gratuit ; `RENDER_EXTERNAL_URL` n'existe qu'à l'exécution, dans le service lui-même. `ApiTimeoutSeconds=90`.
 - `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
-- `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle. Dans `Models.cs`, un 503 sans le JSON de l'API (page d'attente de l'hébergeur) donne « Le serveur démarre. Réessayez dans une minute. ».
+- `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle. Dans `Models.cs`, un 503 sans le JSON de l'API (page d'attente de l'hébergeur) donne « Le serveur démarre. Réessayez dans une minute. ». Ce réveil ne fonctionne pas sur Render : remplacé à l'étape 11 bis.
 
 **Noms des services :** `cairn-knudsem-api` et `cairn-knudsem-web`. Le nom donne l'adresse (`https://<nom>.onrender.com`), et `cairn-api` est déjà pris par le service d'un tiers (relevé par la relecture le 4 novembre) : avec cette adresse, l'interface aurait envoyé ses requêtes, noms des préparateurs compris, à un inconnu. Avant de créer le Blueprint, `curl.exe -sI https://cairn-knudsem-api.onrender.com/` doit répondre `x-render-routing: no-server` (nom libre).
 
@@ -758,7 +758,7 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 
 **Limiter l'effet de la mise en veille :**
 
-- le délai de 90 s et le réveil de l'API au démarrage de l'interface évitent « API injoignable » pendant un réveil, et ramènent le premier chargement à une minute environ au lieu de deux ;
+- le délai de 90 s, les nouveaux essais des lectures et le réveil de l'API par le navigateur (étape 11 bis) évitent une erreur pendant un réveil : l'API répond une quinzaine de secondes après l'appel du navigateur ;
 - pendant la période d'évaluation seulement : un ping gratuit planifié avec cron-job.org sur `https://<web>/` et `https://<api>/health`, toutes les 10 minutes, en semaine de 8 h à 20 h (Europe/Paris). Cela fait environ 2 × 12 h × 22 jours = 528 heures, sous les 750 heures du mois, et Neon reste loin de ses 100 CU-heures. Render ne publie pas clairement sa position sur ces pings : on les limite à la période d'évaluation et on les arrête ensuite ;
 - un mot aux testeurs avec le lien : « le premier chargement peut prendre une minute ; une page d'attente s'affiche, c'est normal ».
 
@@ -772,6 +772,29 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 - journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep -E "@ep-[a-z0-9]"` ne trouve rien (le nom d'hôte d'une chaîne Neon commence par `ep-`)).
 
 **Documentation :** [offre gratuite de Render](https://render.com/docs/free), [spécification Blueprint](https://render.com/docs/blueprint-spec), [Docker sur Render](https://render.com/docs/docker), [WebSockets sur Render](https://render.com/docs/websocket), [port des services web](https://render.com/docs/web-services), [health checks](https://render.com/docs/health-checks), [offres Neon](https://neon.com/docs/introduction/plans), [cycle de vie d'une compute Neon](https://neon.com/docs/introduction/compute-lifecycle), [choisir sa connexion Neon](https://neon.com/docs/connect/choose-connection), [connexion sécurisée à Neon](https://neon.com/docs/connect/connect-securely), [changelog de pgx](https://github.com/jackc/pgx/blob/master/CHANGELOG.md), [FAQ de cron-job.org](https://cron-job.org/en/faq/)
+
+### Étape 11 bis : démarrage à froid sur Render (1 h 45)
+
+**Le bug :** le 4 novembre au soir, après deux heures sans visite, « Qui prépare ? » affichait « Impossible de charger les profils. Le serveur a envoyé une réponse inattendue. » ; « Réessayer », un peu plus tard, affichait les profils.
+
+**La cause, mesurée :**
+
+- journaux de l'interface : « GET api/pickers : réponse inattendue 502 » cinq fois entre 21 h 23 et 21 h 31 ; journaux de l'API : aucun démarrage pendant ce temps ;
+- sonde en lecture seule depuis le poste, API endormie : un client sans en-têtes de navigateur est retenu 13,6 s, puis reçoit la vraie réponse ; un client qui se présente comme un navigateur (`Accept: text/html`) reçoit la page d'attente (503 en HTML, `retry-after: 5`, `x-render-routing: hibernate-pending-wake`) ; l'API démarre à 21 h 35 ;
+- conclusion : un appel venu de l'interface, hébergée chez Render, reçoit un 502 et ne réveille pas l'API ; un appel venu de l'extérieur la réveille en une quinzaine de secondes. Le réveil au démarrage de l'interface (étape 11) ne servait donc à rien.
+
+**Correction, dans l'interface seulement :**
+
+- `CairnApiClient` : nouveau type d'échec `Starting`, pour un code 502, 503 ou 504, ou une réponse qui n'est pas du JSON. Une lecture (GET) est réessayée toutes les 3 s tant que l'API démarre ou ne répond pas, dans la limite du délai configuré (90 s sur Render, 5 s en local), essais et attentes compris. Chaque essai est journalisé avec le code et le type reçus ; une réponse obtenue après plusieurs essais donne la durée du réveil. Une écriture (POST) n'est jamais renvoyée : elle affiche « Cairn démarre. Réessayez dans un instant. ».
+- Réveil par le navigateur : le module `wwwroot/js/api-wake-up.js` (`fetch` en mode `no-cors`, sans cache, réponse ignorée), appelé par interop depuis `Api/ApiWakeUp.cs` au premier affichage (`MainLayout`, interactif), puis à chaque résultat « l'API démarre », au plus une fois toutes les 10 s. Adresse tirée d'`ApiBaseUrl`. Coupé dans Compose (`ApiWakeUpFromBrowser=false`) : le navigateur ne peut pas joindre `api:8080`.
+- Pages : « Cairn démarre. Cela peut prendre une minute. » à la place de « Chargement... » ; quand la page reste affichée (« Actualiser », relecture après l'échec d'une validation), le même message en bas de l'écran, sans décaler les cartes. L'encadré d'erreur seulement après le délai. Après l'échec d'une validation, la relecture de la commande attend le démarrage de l'API, puis dit si la ligne est validée.
+- Supprimés : le réveil au démarrage de l'interface (`Program.cs`), `GetHealthAsync` et `ApiHealth`.
+
+**Vérification :** un faux Render local entre l'interface et l'API renvoie un 502 aux appels de l'interface tant que le navigateur n'a pas appelé, puis laisse passer 15 s après cet appel. Profils, liste et commande ouverte s'affichent seuls ; de même avec une page 503 en HTML, une page HTML en 200 ou une connexion coupée. Témoin, avec l'appel du navigateur bloqué : 30 essais en 502, puis l'encadré après 88 s (le bug reproduit). Validation d'une ligne et création du profil « Test » : un seul POST reçu, message clair, rien d'enregistré, puis « Réessayer » enregistre une seule fois. Scripts des étapes 7 bis.2 à 10 bis verts sur Compose, tests Go inchangés.
+
+**En ligne, après déploiement :** après plus de 15 minutes sans visite, `/pickers` montre la page de Render, puis « Cairn démarre », puis les profils, sans clic. Journaux de l'interface : « Réveil de l'API demandé au navigateur », quelques « l'API démarre (réponse 502 ...) », puis « réponse après N essais, en N s ».
+
+**Option à décider le 5 novembre :** un ping externe de la seule page d'accueil de l'interface pendant les jours d'évaluation (environ 264 heures sur 750, sans appel à l'API ni à Neon), pour éviter aussi la minute de réveil de l'interface elle-même.
 
 ### Étape 12 : README, capture d'écran, vidéo de démonstration (1 h 30)
 

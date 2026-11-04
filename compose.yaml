@@ -91,6 +91,9 @@ services:
     build: ./web
     environment:
       ApiBaseUrl: http://api:8080/
+      # Pas de réveil de l'API par le navigateur (étape 11 bis) : il ne peut
+      # pas joindre api:8080, nom connu seulement à l'intérieur de Docker.
+      ApiWakeUpFromBrowser: "false"
     ports:
       # Le conteneur écoute sur 8080, publié sur le port 8081 du poste.
       - "127.0.0.1:8081:8080"

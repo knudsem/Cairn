@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -13,6 +14,10 @@ namespace Cairn.Web.Api;
 /// HttpClient déjà réglé (adresse de base, délai maximal). Les chemins sont
 /// relatifs, sans barre oblique au début (« api/pickers ») : ils s'ajoutent à
 /// l'adresse de base, quelle qu'elle soit (Docker Compose ou Render).
+///
+/// Démarrage de l'API (docs/PLAN.md, étape 11 bis) : une lecture (GET) est
+/// réessayée tant que l'API démarre, dans la limite du délai configuré ; une
+/// écriture (POST) n'est jamais renvoyée sans action du préparateur.
 /// </remarks>
 public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
 {
@@ -32,43 +37,15 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
         RespectRequiredConstructorParameters = true,
     };
 
-    /// <summary>
-    /// Interroge GET /health et traduit la réponse en <see cref="ApiHealth"/>.
-    /// Une API injoignable n'est pas une exception : c'est un état à afficher.
-    /// </summary>
-    public async Task<ApiHealth> GetHealthAsync()
-    {
-        try
-        {
-            using var response = await http.GetAsync("health");
-            if (response.StatusCode == HttpStatusCode.OK)
-            {
-                return ApiHealth.Ok;
-            }
-            if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
-            {
-                return ApiHealth.DatabaseUnavailable;
-            }
-            logger.LogWarning("GET /health : réponse inattendue {StatusCode}", (int)response.StatusCode);
-            return ApiHealth.Unreachable;
-        }
-        catch (HttpRequestException ex)
-        {
-            // Connexion impossible : API arrêtée, nom inconnu, port fermé.
-            logger.LogWarning("GET /health : API injoignable ({Message})", ex.Message);
-            return ApiHealth.Unreachable;
-        }
-        catch (TaskCanceledException)
-        {
-            // Délai maximal de HttpClient dépassé (voir Program.cs).
-            logger.LogWarning("GET /health : pas de réponse dans le délai");
-            return ApiHealth.Unreachable;
-        }
-    }
+    /// <summary>Attente entre deux essais d'une lecture, pendant que l'API démarre.</summary>
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(3);
 
-    /// <summary>GET /api/pickers : les profils, déjà triés par nom par l'API.</summary>
-    public Task<ApiResult<IReadOnlyList<Picker>>> GetPickersAsync() =>
-        SendAsync<IReadOnlyList<Picker>>(HttpMethod.Get, "api/pickers", null, HttpStatusCode.OK);
+    /// <summary>
+    /// GET /api/pickers : les profils, déjà triés par nom par l'API. Pour
+    /// onStarting, voir <see cref="GetAsync{T}"/>.
+    /// </summary>
+    public Task<ApiResult<IReadOnlyList<Picker>>> GetPickersAsync(Func<Task>? onStarting = null) =>
+        GetAsync<IReadOnlyList<Picker>>("api/pickers", onStarting);
 
     /// <summary>
     /// POST /api/pickers : crée le profil name. En cas de succès, la valeur est
@@ -80,35 +57,90 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
         SendAsync<Picker>(HttpMethod.Post, "api/pickers", JsonContent.Create(new { name }, options: Json), HttpStatusCode.Created);
 
     /// <summary>GET /api/orders : les commandes, la plus ancienne en premier.</summary>
-    public Task<ApiResult<IReadOnlyList<OrderSummary>>> GetOrdersAsync() =>
-        SendAsync<IReadOnlyList<OrderSummary>>(HttpMethod.Get, "api/orders", null, HttpStatusCode.OK);
+    public Task<ApiResult<IReadOnlyList<OrderSummary>>> GetOrdersAsync(Func<Task>? onStarting = null) =>
+        GetAsync<IReadOnlyList<OrderSummary>>("api/orders", onStarting);
 
     /// <summary>
     /// GET /api/orders/{id} : la commande et ses lignes. Refus prévu
     /// (Rejected) : 404 commande_introuvable.
     /// </summary>
-    public Task<ApiResult<Order>> GetOrderAsync(long id) =>
-        SendAsync<Order>(HttpMethod.Get, $"api/orders/{id}", null, HttpStatusCode.OK);
+    public Task<ApiResult<Order>> GetOrderAsync(long id, Func<Task>? onStarting = null) =>
+        GetAsync<Order>($"api/orders/{id}", onStarting);
 
     /// <summary>
     /// POST /api/orders/{orderId}/lines/{lineId}/pick : valide la ligne au nom
     /// de picker. En cas de succès, la valeur est la commande mise à jour.
     /// Refus prévus (Rejected) : 409 stock_insuffisant, 409 deja_preparee,
     /// 404, 400. Sans réponse, la validation a pu être enregistrée : la page
-    /// relit alors la commande.
+    /// relit alors la commande. Un seul envoi, même si l'API démarre.
     /// </summary>
     public Task<ApiResult<Order>> PickLineAsync(long orderId, long lineId, string picker) =>
         SendAsync<Order>(HttpMethod.Post, $"api/orders/{orderId}/lines/{lineId}/pick",
             JsonContent.Create(new { picker }, options: Json), HttpStatusCode.OK);
 
     /// <summary>
-    /// Envoie la requête et lit la réponse : la valeur JSON si le code HTTP est
-    /// expected, sinon la raison de l'échec. Aucune exception ne sort de cette
+    /// Lecture (GET), réessayée tant que l'API démarre (Starting) ou ne répond
+    /// pas (Unreachable), toutes les <see cref="RetryDelay"/>. Le délai
+    /// configuré (http.Timeout : 90 s sur Render, 5 s en local) borne la
+    /// lecture entière, essais et attentes compris : passé ce délai, le
+    /// dernier échec est rendu à la page. Avant chaque attente, onStarting
+    /// prévient la page : elle affiche « Cairn démarre » et fait réveiller
+    /// l'API par le navigateur (ApiWakeUp). Une lecture peut être renvoyée
+    /// sans risque : elle ne change rien. Un essai coupé par le délai rend
+    /// l'échec de l'essai précédent, plus parlant qu'une simple annulation.
+    /// </summary>
+    private async Task<ApiResult<T>> GetAsync<T>(string path, Func<Task>? onStarting)
+    {
+        var clock = Stopwatch.StartNew();
+        // Annule l'essai en cours une fois le délai configuré écoulé depuis
+        // le premier essai.
+        using var cancel = new CancellationTokenSource(http.Timeout);
+        var attempts = 1;
+        ApiResult<T>? previous = null;
+        while (true)
+        {
+            var result = await SendAsync<T>(HttpMethod.Get, path, null, HttpStatusCode.OK, cancel.Token);
+            if (cancel.IsCancellationRequested && previous is not null)
+            {
+                result = previous;
+            }
+            if (result.IsSuccess || result.Error.Kind is not (ApiErrorKind.Starting or ApiErrorKind.Unreachable))
+            {
+                if (attempts > 1)
+                {
+                    // Sur Render, donne la durée réelle du réveil de l'API.
+                    logger.LogInformation("GET {Path} : réponse après {Attempts} essais, en {Seconds:0} s",
+                        path, attempts, clock.Elapsed.TotalSeconds);
+                }
+                return result;
+            }
+            if (clock.Elapsed + RetryDelay >= http.Timeout)
+            {
+                logger.LogWarning("GET {Path} : l'API ne répond toujours pas après {Attempts} essais, en {Seconds:0} s",
+                    path, attempts, clock.Elapsed.TotalSeconds);
+                return result;
+            }
+            if (onStarting is not null)
+            {
+                await onStarting();
+            }
+            await Task.Delay(RetryDelay);
+            previous = result;
+            attempts++;
+        }
+    }
+
+    /// <summary>
+    /// Envoie la requête une seule fois et lit la réponse : la valeur JSON si
+    /// le code HTTP est expected, sinon la raison de l'échec. Le délai de
+    /// HttpClient s'applique, et cancellationToken peut l'abréger (lecture
+    /// réessayée, voir GetAsync). Aucune exception ne sort de cette
     /// méthode pour une API absente ou une réponse inattendue : dans un
     /// composant Blazor, une exception non rattrapée couperait le circuit, et
     /// la page cesserait de répondre.
     /// </summary>
-    private async Task<ApiResult<T>> SendAsync<T>(HttpMethod method, string path, HttpContent? content, HttpStatusCode expected)
+    private async Task<ApiResult<T>> SendAsync<T>(HttpMethod method, string path, HttpContent? content,
+        HttpStatusCode expected, CancellationToken cancellationToken = default)
     {
         using var request = new HttpRequestMessage(method, path) { Content = content };
         var call = $"{method} {path}";
@@ -118,16 +150,19 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
             // SendAsync lit tout le corps de la réponse avant de rendre la
             // main : une coupure en cours de lecture arrive ici, sous forme
             // de HttpRequestException.
-            using var response = await http.SendAsync(request);
+            using var response = await http.SendAsync(request, cancellationToken);
             status = (int)response.StatusCode;
+            if (IsStarting(response))
+            {
+                // Une ligne par essai, avec le code et le type reçus : de quoi
+                // savoir, dans les journaux de Render, ce qui a répondu.
+                logger.LogInformation("{Call} : l'API démarre (réponse {Status} {ContentType})",
+                    call, status, response.Content.Headers.ContentType?.MediaType ?? "sans type");
+                return ApiResult<T>.Failure(new ApiError(ApiErrorKind.Starting, status));
+            }
             if (response.StatusCode != expected)
             {
                 return ApiResult<T>.Failure(await ReadErrorAsync(response, call));
-            }
-            if (!IsJson(response))
-            {
-                logger.LogWarning("{Call} : réponse {Status} qui n'est pas du JSON", call, status);
-                return ApiResult<T>.Failure(new ApiError(ApiErrorKind.Unexpected, status));
             }
             var value = await response.Content.ReadFromJsonAsync<T>(Json);
             if (value is null)
@@ -145,7 +180,8 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
         }
         catch (TaskCanceledException)
         {
-            // Délai maximal de HttpClient dépassé (voir Program.cs).
+            // Délai dépassé : celui de HttpClient (voir Program.cs), ou celui
+            // d'une lecture réessayée (GetAsync).
             logger.LogWarning("{Call} : pas de réponse dans le délai", call);
             return ApiResult<T>.Failure(new ApiError(ApiErrorKind.Unreachable));
         }
@@ -159,37 +195,40 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
     }
 
     /// <summary>
-    /// Traduit une réponse d'erreur. Son JSON n'est lu que si elle annonce du
-    /// JSON : c'est alors le format d'erreur unique de l'API. Le routeur de Go
-    /// (404 ou 405 en texte brut) ou un intermédiaire (page HTML) peuvent
-    /// répondre autrement : c'est une réponse inattendue.
+    /// Vrai si la réponse vient d'un intermédiaire pendant le démarrage de
+    /// l'API, et non de l'API : un code 502, 503 ou 504, ou une réponse qui
+    /// n'est pas du JSON (page HTML d'attente ou d'erreur). L'API répond
+    /// toujours en JSON, sauf son routeur pour une route inconnue (404 ou 405
+    /// en texte brut), ce que le client ne demande jamais.
+    /// </summary>
+    private static bool IsStarting(HttpResponseMessage response) =>
+        response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout
+        || !string.Equals(response.Content.Headers.ContentType?.MediaType, "application/json", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Traduit une réponse d'erreur en JSON : c'est normalement le format
+    /// d'erreur unique de l'API (Rejected). Un JSON d'une autre forme est une
+    /// réponse inattendue.
     /// </summary>
     private async Task<ApiError> ReadErrorAsync(HttpResponseMessage response, string call)
     {
         var status = (int)response.StatusCode;
-        if (IsJson(response))
+        try
         {
-            try
+            var body = await response.Content.ReadFromJsonAsync<ApiErrorBody>(Json);
+            if (body is not null)
             {
-                var body = await response.Content.ReadFromJsonAsync<ApiErrorBody>(Json);
-                if (body is not null)
-                {
-                    // Un refus prévu (409, 400) est normal ; une erreur 500 mérite l'attention.
-                    logger.Log(status >= 500 ? LogLevel.Warning : LogLevel.Information,
-                        "{Call} : {Status} {Code}", call, status, body.Error);
-                    return new ApiError(ApiErrorKind.Rejected, status, body.Error, body.Message);
-                }
+                // Un refus prévu (409, 400) est normal ; une erreur 500 mérite l'attention.
+                logger.Log(status >= 500 ? LogLevel.Warning : LogLevel.Information,
+                    "{Call} : {Status} {Code}", call, status, body.Error);
+                return new ApiError(ApiErrorKind.Rejected, status, body.Error, body.Message);
             }
-            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
-            {
-                // Corps illisible : traité plus bas comme une réponse inattendue.
-            }
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        {
+            // Corps illisible : traité plus bas comme une réponse inattendue.
         }
         logger.LogWarning("{Call} : réponse inattendue {Status}", call, status);
         return new ApiError(ApiErrorKind.Unexpected, status);
     }
-
-    /// <summary>Vrai si la réponse annonce du JSON (en-tête Content-Type).</summary>
-    private static bool IsJson(HttpResponseMessage response) =>
-        string.Equals(response.Content.Headers.ContentType?.MediaType, "application/json", StringComparison.OrdinalIgnoreCase);
 }

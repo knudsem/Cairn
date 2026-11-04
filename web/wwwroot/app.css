@@ -388,6 +388,33 @@ h1:focus {
     color: var(--color-muted);
 }
 
+/* « Cairn démarre » pendant un chargement qui garde la page affichée
+   (Actualiser, relecture après une validation : étape 11 bis). Fixé en bas
+   de l'écran, il ne décale pas les cartes sous le doigt. L'élément reste
+   toujours dans la page, vide au repos (aucune taille) : un lecteur d'écran
+   annonce alors sûrement le texte qui y apparaît (role="status"). Blanc sur
+   bleu nuit : 14:1. */
+.status-toast {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    z-index: 500;
+    max-width: calc(100% - 2rem);
+    margin: 0;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius);
+    background: var(--color-navy);
+    color: var(--color-white);
+    box-shadow: var(--shadow-panel);
+    text-align: center;
+    transform: translateX(-50%);
+}
+
+.status-toast:empty {
+    padding: 0;
+    box-shadow: none;
+}
+
 /* Bandeau d'erreur de Blazor (App.razor), masqué tant que tout va bien. */
 #blazor-error-ui {
     color-scheme: light only;

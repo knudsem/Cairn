@@ -2,6 +2,7 @@
 @using Microsoft.JSInterop
 @inject CairnApiClient Api
 @inject PickerState PickerState
+@inject ApiWakeUp ApiWakeUp
 
 @* Préparation d'une commande (docs/PLAN.md, étapes 9 et 10 bis) : la
    prochaine ligne mise en avant, les autres lignes à préparer, puis les
@@ -17,6 +18,11 @@
     @{
         var ready = order?.Status == OrderStatus.Ready;
     }
+
+    @* Relecture après l'échec d'une validation, pendant que l'API démarre :
+       la commande reste affichée, et le message s'affiche en bas de l'écran,
+       sans la décaler (étape 11 bis, app.css). *@
+    <p class="status-toast" role="status">@(starting && order is not null ? ApiError.StartingWaitMessage : null)</p>
 
     @* En-tête : le nom du client en titre, la référence en petit dessous. Le
        titre (h1) est écrit une seule fois, hors des conditions : il reste le
@@ -56,7 +62,9 @@
         }
         else
         {
-            <p class="loading" role="status">Chargement de la commande...</p>
+            @* Pendant que l'API démarre, « Cairn démarre » remplace
+               « Chargement » (étape 11 bis). *@
+            <p class="loading" role="status">@(starting ? ApiError.StartingWaitMessage : "Chargement de la commande...")</p>
             <div class="line-card line-next line-skeleton" aria-hidden="true">
                 <span class="skeleton-block"></span>
                 <span class="skeleton-block skeleton-wide"></span>
@@ -164,6 +172,8 @@
     private Order? order;
     private ApiError? loadError;
     private long? loadedId;
+    // Vrai pendant que le chargement attend le démarrage de l'API.
+    private bool starting;
 
     // Validation en cours (identifiant de la ligne), et message après coup.
     private long? pickingLineId;
@@ -202,6 +212,7 @@
         loadedId = OrderId;
         order = null;
         loadError = null;
+        starting = false;
         pickingLineId = null;
         success = null;
         info = null;
@@ -233,13 +244,14 @@
     private async Task LoadAsync()
     {
         var id = OrderId;
-        var result = await Api.GetOrderAsync(id);
+        var result = await Api.GetOrderAsync(id, ShowStartingAsync);
         // Pendant l'appel, le préparateur a pu ouvrir une autre commande :
         // la réponse, devenue inutile, est ignorée.
         if (id != OrderId)
         {
             return;
         }
+        starting = false;
         if (result.IsSuccess)
         {
             await ShowAsync(result.Value);
@@ -251,6 +263,16 @@
         {
             loadError = result.Error;
         }
+    }
+
+    // Rappelé par CairnApiClient avant chaque nouvel essai d'une lecture,
+    // pendant que l'API démarre : message tout de suite, et réveil de l'API
+    // par le navigateur.
+    private async Task ShowStartingAsync()
+    {
+        starting = true;
+        StateHasChanged();
+        await ApiWakeUp.WakeUpAsync();
     }
 
     private async Task RetryLoadAsync()
@@ -304,7 +326,15 @@
         // quand même (délai dépassé, erreur après l'enregistrement). La
         // commande est relue, et c'est elle qui décide du message.
         var error = result.Error;
-        var reload = await Api.GetOrderAsync(id);
+        // L'API démarre : la validation n'est pas renvoyée, mais le
+        // navigateur réveille l'API. La relecture, elle, attend son
+        // démarrage, avec « Cairn démarre » en bas de l'écran.
+        if (error.Kind == ApiErrorKind.Starting)
+        {
+            await ApiWakeUp.WakeUpAsync();
+        }
+        var reload = await Api.GetOrderAsync(id, ShowStartingAsync);
+        starting = false;
         if (id != OrderId)
         {
             if (reload.IsSuccess)

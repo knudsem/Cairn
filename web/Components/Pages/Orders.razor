@@ -2,6 +2,7 @@
 @page "/orders/{OrderId:long}"
 @using Microsoft.JSInterop
 @inject CairnApiClient Api
+@inject ApiWakeUp ApiWakeUp
 
 @* Écran des commandes (docs/PLAN.md, étapes 8 et 9). Deux adresses pour un
    même composant : / (la liste) et /orders/{id} (la liste et une commande
@@ -49,6 +50,10 @@
         </div>
 
         <div>
+            @* « Actualiser » pendant que l'API démarre : la liste reste
+               affichée, et le message s'affiche en bas de l'écran, sans la
+               décaler (étape 11 bis, app.css). *@
+            <p class="status-toast" role="status">@(starting && orders is not null ? ApiError.StartingWaitMessage : null)</p>
             @if (loadError is not null)
             {
                 <div class="alert-error" role="alert">
@@ -60,7 +65,7 @@
             }
             else if (orders is null)
             {
-                <p class="loading" role="status">Chargement des commandes...</p>
+                <p class="loading" role="status">@(starting ? ApiError.StartingWaitMessage : "Chargement des commandes...")</p>
                 <div class="order-cards" aria-hidden="true">
                     @for (var i = 0; i < 3; i++)
                     {
@@ -138,6 +143,8 @@
     private List<OrderSummary>? orders;
     private ApiError? loadError;
     private bool loading;
+    // Vrai pendant qu'un chargement attend le démarrage de l'API.
+    private bool starting;
 
     // Onglet affiché : « Prêtes » si vrai, « À préparer » sinon.
     private bool showReady;
@@ -223,7 +230,8 @@
     {
         loading = true;
         loadError = null;
-        var result = await Api.GetOrdersAsync();
+        var result = await Api.GetOrdersAsync(ShowStartingAsync);
+        starting = false;
         if (result.IsSuccess)
         {
             orders = result.Value.ToList();
@@ -234,6 +242,16 @@
             loadError = result.Error;
         }
         loading = false;
+    }
+
+    // Rappelé par CairnApiClient avant chaque nouvel essai d'une lecture,
+    // pendant que l'API démarre : message tout de suite, et réveil de l'API
+    // par le navigateur.
+    private async Task ShowStartingAsync()
+    {
+        starting = true;
+        StateHasChanged();
+        await ApiWakeUp.WakeUpAsync();
     }
 
     private async Task RefreshAsync()

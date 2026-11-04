@@ -1,6 +1,7 @@
 @page "/pickers"
 @using System.Diagnostics.CodeAnalysis
 @inject CairnApiClient Api
+@inject ApiWakeUp ApiWakeUp
 @inject PickerState PickerState
 @inject NavigationManager Nav
 
@@ -32,7 +33,9 @@
             }
             else if (pickers is null)
             {
-                <p class="loading picker-status" role="status">Chargement des profils...</p>
+                @* Pendant que l'API démarre, « Cairn démarre » remplace
+                   « Chargement » (étape 11 bis). *@
+                <p class="loading picker-status" role="status">@(starting ? ApiError.StartingWaitMessage : "Chargement des profils...")</p>
                 @* Emplacements des futures cartes, décoratifs : cachés aux lecteurs d'écran. *@
                 <div class="picker-grid" aria-hidden="true">
                     @for (var i = 0; i < 3; i++)
@@ -46,6 +49,10 @@
             }
             else
             {
+                @* Liste relue après « Annuler » pendant que l'API démarre :
+                   l'ancienne liste reste affichée, et le message s'affiche en
+                   bas de l'écran, sans la décaler (app.css). *@
+                <p class="status-toast" role="status">@(starting ? ApiError.StartingWaitMessage : null)</p>
                 @if (pickers.Count == 0)
                 {
                     <p class="picker-status">Aucun profil pour l'instant : ajoutez le vôtre.</p>
@@ -119,6 +126,8 @@
     private IReadOnlyList<Picker>? pickers;
     private ApiError? loadError;
     private bool loading;
+    // Vrai pendant qu'un chargement attend le démarrage de l'API.
+    private bool starting;
 
     // Formulaire « Nouveau profil ».
     private bool adding;
@@ -184,7 +193,8 @@
     {
         loading = true;
         loadError = null;
-        var result = await Api.GetPickersAsync();
+        var result = await Api.GetPickersAsync(ShowStartingAsync);
+        starting = false;
         if (result.IsSuccess)
         {
             pickers = result.Value;
@@ -195,6 +205,17 @@
             loadError = result.Error;
         }
         loading = false;
+    }
+
+    // Rappelé par CairnApiClient avant chaque nouvel essai d'une lecture,
+    // pendant que l'API démarre : le message s'affiche tout de suite
+    // (StateHasChanged redessine la page sans attendre la fin du
+    // chargement), et le navigateur réveille l'API.
+    private async Task ShowStartingAsync()
+    {
+        starting = true;
+        StateHasChanged();
+        await ApiWakeUp.WakeUpAsync();
     }
 
     private async Task RetryAsync()
@@ -247,13 +268,19 @@
             Choose(result.Value);
             return;
         }
+        // L'API démarre : la création n'est pas renvoyée, mais le
+        // navigateur réveille l'API pour le prochain essai du préparateur.
+        if (result.Error.Kind == ApiErrorKind.Starting)
+        {
+            await ApiWakeUp.WakeUpAsync();
+        }
         creating = false;
         formError = result.Error.Code switch
         {
             "profil_existant" => "Ce profil existe déjà : choisissez-le dans la liste.",
             "trop_de_profils" => "20 profils au maximum : choisissez un profil existant.",
             // Nom refusé (400) : le message de l'API dit pourquoi ; sinon,
-            // serveur absent ou en erreur.
+            // serveur absent, qui démarre ou en erreur.
             _ => result.Error.UserMessage,
         };
         focusNameInput = true;

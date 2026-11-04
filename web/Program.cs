@@ -1,6 +1,7 @@
 using Cairn.Web.Api;
 using Cairn.Web.Components;
 using Cairn.Web.State;
+using Microsoft.JSInterop;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,8 +17,9 @@ var apiBaseUrl = new Uri(builder.Configuration["ApiBaseUrl"]
     ?? throw new InvalidOperationException("La configuration ApiBaseUrl est manquante."));
 // Délai maximal d'un appel à l'API : 5 secondes par défaut, car le délai de
 // HttpClient (100 secondes) est bien trop long sur une tablette. En ligne
-// (Render, docs/PLAN.md étape 11), ApiTimeoutSeconds vaut 90 : une API
-// endormie met environ une minute à se réveiller, et l'appel doit l'attendre.
+// (Render, docs/PLAN.md étapes 11 et 11 bis), ApiTimeoutSeconds vaut 90 : une
+// API endormie met du temps à se réveiller. Pour une lecture, ce délai couvre
+// tous les essais (CairnApiClient.GetAsync).
 var apiTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiTimeoutSeconds", 5));
 builder.Services.AddHttpClient<CairnApiClient>(client =>
 {
@@ -25,19 +27,23 @@ builder.Services.AddHttpClient<CairnApiClient>(client =>
     client.Timeout = apiTimeout;
 });
 
+// Réveil de l'API par le navigateur (Api/ApiWakeUp.cs), avec l'adresse de
+// /health tirée d'ApiBaseUrl. « Scoped » : une instance par circuit. Actif
+// par défaut ; compose.yaml le coupe (ApiWakeUpFromBrowser=false) : le
+// navigateur ne peut pas joindre http://api:8080/, nom connu seulement à
+// l'intérieur de Docker, et chaque appel laisserait une erreur dans sa
+// console. En local, l'API ne s'endort pas.
+var wakeUpUrl = builder.Configuration.GetValue("ApiWakeUpFromBrowser", true) ? new Uri(apiBaseUrl, "health") : null;
+builder.Services.AddScoped(services => new ApiWakeUp(
+    services.GetRequiredService<IJSRuntime>(),
+    wakeUpUrl,
+    services.GetRequiredService<ILogger<ApiWakeUp>>()));
+
 // Profil du préparateur choisi. « Scoped » : une instance par circuit Blazor,
 // donc par onglet ouvert (State/PickerState.cs).
 builder.Services.AddScoped<PickerState>();
 
 var app = builder.Build();
-
-// Au démarrage de l'interface, un appel à /health réveille l'API en même
-// temps qu'elle : sur Render, les deux services s'endorment ensemble, et le
-// premier préparateur attend ainsi un seul réveil au lieu de deux à la suite.
-// L'appel part en arrière-plan (« _ = ») : le démarrage ne l'attend pas, et
-// GetHealthAsync ne lève pas d'exception.
-app.Lifetime.ApplicationStarted.Register(() =>
-    _ = app.Services.GetRequiredService<CairnApiClient>().GetHealthAsync());
 
 // Traitement des requêtes HTTP : page d'erreur hors développement, page 404,
 // protection antifalsification, fichiers statiques, puis composants Razor.
