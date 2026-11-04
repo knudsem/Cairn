@@ -1,7 +1,9 @@
 package store_test
 
 // Infrastructure commune aux tests du paquet store : connexion à la base de
-// test, remise à zéro, création de données et outils de concurrence.
+// test, remise à zéro, création de données et outils de concurrence. La
+// connexion et la remise à zéro viennent du paquet testdb, partagé avec les
+// tests de la couche HTTP.
 //
 // Les tests tournent sur le service db-test de compose.yaml :
 //
@@ -9,19 +11,13 @@ package store_test
 //	go test -count=1 ./...        (dans le dossier api)
 //
 // -count=1 désactive le cache des résultats de go test, inadapté à des tests
-// qui dépendent d'une base de données.
-//
-// Les tests de ce paquet s'exécutent l'un après l'autre : aucun n'appelle
-// t.Parallel. En revanche, go test ./... teste plusieurs paquets en même
-// temps. Si un autre paquet utilisait un jour la base de test, il faudrait
-// ajouter l'option -p 1 (un paquet à la fois), sinon leurs remises à zéro se
-// mélangeraient.
+// qui dépendent d'une base de données. Les tests de ce paquet s'exécutent
+// l'un après l'autre (aucun n'appelle t.Parallel), et testdb.Open fait
+// attendre les autres paquets qui utilisent la base de test.
 
 import (
-	"context"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,11 +25,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/knudsem/cairn/api/internal/store"
+	"github.com/knudsem/cairn/api/internal/testdb"
 )
-
-// Base de test par défaut : le service db-test. La variable d'environnement
-// TEST_DATABASE_URL permet d'en désigner une autre.
-const defaultTestDatabaseURL = "postgres://cairn:cairn@127.0.0.1:5433/cairn_test?sslmode=disable"
 
 // pool et st sont partagés par tous les tests du paquet. Chaque test vide la
 // base avant de créer ses propres données.
@@ -46,99 +39,21 @@ var (
 // lance les tests (m.Run), puis la ferme. C'est l'équivalent d'un
 // setUpModule en Python, ou d'un beforeAll en JavaScript.
 func TestMain(m *testing.M) {
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		url = defaultTestDatabaseURL
-	}
-	var err error
-	pool, err = connectTestDB(url)
+	db, err := testdb.Open()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "tests impossibles : %v\n", err)
-		fmt.Fprintln(os.Stderr, "La base de test se lance avec : docker compose up -d --wait db-test")
 		os.Exit(1)
 	}
-	defer closePool(pool)
+	defer db.Close()
+	pool = db.Pool
 	st = store.New(pool)
 	m.Run()
 }
 
-// closePool ferme le pool p, sauf si une connexion ne lui a pas été rendue :
-// Close attend le retour de chaque connexion, et bloquerait jusqu'au délai de
-// go test. C'est ce qui arrive quand une transaction reste ouverte, ce que
-// resetDB signale déjà ; la fin du programme fermera alors la connexion.
-func closePool(p *pgxpool.Pool) {
-	if p.Stat().AcquiredConns() == 0 {
-		p.Close()
-	}
-}
-
-// connectTestDB ouvre le pool et vérifie qu'il s'agit bien d'une base de
-// test : les tests vident les tables, ils ne doivent jamais toucher aux
-// données de démonstration (docs/PLAN.md, section 1).
-func connectTestDB(url string) (*pgxpool.Pool, error) {
-	cfg, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		return nil, err
-	}
-	// Assez de connexions pour les validations simultanées des tests.
-	cfg.MaxConns = 16
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	p, err := pgxpool.NewWithConfig(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
-	var name string
-	if err := p.QueryRow(ctx, `SELECT current_database()`).Scan(&name); err != nil {
-		p.Close()
-		return nil, err
-	}
-	if !strings.HasSuffix(name, "_test") {
-		p.Close()
-		return nil, fmt.Errorf("refus de lancer les tests sur la base %q : son nom ne se termine pas par _test, et les tests vident les tables", name)
-	}
-	return p, nil
-}
-
-// resetDB vide les trois tables et fait repartir les identifiants de plages
-// distinctes : produits 1, 2... ; commandes 101, 102... ; lignes 201, 202...
-// Si tous repartaient de 1, un code qui confond l'identifiant d'une commande
-// avec celui d'une ligne pourrait passer les tests par coïncidence.
-//
-// À la fin du test, elle vérifie aussi qu'aucune transaction n'est restée
-// ouverte, ce qui trahirait un Commit ou un Rollback oublié.
+// resetDB vide la base avant un test (voir testdb.Reset).
 func resetDB(t *testing.T) {
 	t.Helper()
-	// Une transaction restée ouverte garde ses verrous, et TRUNCATE
-	// l'attendrait jusqu'au délai global de go test (10 minutes). Avec ce
-	// délai de 5 secondes, le test échoue vite et avec un message clair.
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
-	defer cancel()
-	for _, sql := range []string{
-		`TRUNCATE order_lines, orders, products RESTART IDENTITY`,
-		`ALTER TABLE orders ALTER COLUMN id RESTART WITH 101`,
-		`ALTER TABLE order_lines ALTER COLUMN id RESTART WITH 201`,
-	} {
-		if _, err := pool.Exec(ctx, sql); err != nil {
-			t.Fatalf("remise à zéro impossible (%s), une transaction est peut-être restée ouverte : %v", sql, err)
-		}
-	}
-
-	// t.Cleanup enregistre une fonction exécutée à la fin du test, comme un
-	// tearDown en Python. Le contexte du test est alors déjà annulé, d'où
-	// context.Background().
-	t.Cleanup(func() {
-		var open int
-		err := pool.QueryRow(context.Background(), `
-			SELECT count(*) FROM pg_stat_activity
-			WHERE datname = current_database() AND state LIKE 'idle in transaction%'`).Scan(&open)
-		if err != nil {
-			t.Errorf("recherche des transactions restées ouvertes : %v", err)
-		} else if open > 0 {
-			t.Errorf("%d transaction(s) restée(s) ouverte(s) à la fin du test : Commit ou Rollback oublié ?", open)
-		}
-	})
+	testdb.Reset(t, pool)
 }
 
 // insertProduct crée un produit et renvoie son identifiant.

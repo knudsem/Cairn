@@ -91,7 +91,13 @@ Cairn/
       httpapi/
         routes.go              table des routes
         handlers.go            traduction HTTP ↔ store
+        pick.go                validation d'une ligne : contrôle de la requête, traduction des erreurs
         respond.go             réponses JSON et format d'erreur unique
+        main_test.go           tests HTTP (httptest) : outils communs
+        pick_test.go           tests de la route de validation
+        routes_test.go         tests des lectures et du routeur
+      testdb/
+        testdb.go              base de test des deux paquets : garde-fou, verrou, remise à zéro
   web/                         projet Blazor
     Cairn.Web.csproj
     Program.cs                 injection de dépendances, HttpClient
@@ -323,7 +329,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 
 | Code HTTP | `error` | Cas |
 |---|---|---|
-| 400 | `requete_invalide` | identifiant non numérique, JSON invalide, nom de préparateur vide, statut de filtre inconnu |
+| 400 | `requete_invalide` | identifiant non numérique, corps refusé (type, taille, JSON invalide, champ inconnu), nom de préparateur invalide, statut de filtre inconnu |
 | 404 | `commande_introuvable` | commande inexistante |
 | 404 | `ligne_introuvable` | ligne inexistante, ou n'appartenant pas à la commande |
 | 409 | `deja_preparee` | ligne déjà validée |
@@ -339,6 +345,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 - **Méthode HTTP incorrecte** : le routeur de `net/http` répond 405 automatiquement.
 - **Erreurs du routeur en texte brut** : une route inconnue (404) ou une méthode non prévue (405) reçoit une réponse `text/plain`, hors du format JSON unique. Le client ne lit donc le JSON d'une erreur que si la réponse est de type `application/json` ; sinon il affiche un message générique. La même règle couvre la page d'attente de Render (étape 11).
 - **Paramètres validés** : une chaîne de requête mal formée (`?status=%zz`) ou un paramètre répété donne 400, au lieu d'être ignoré.
+- **Chemins non canoniques** : un chemin qui contient `//` ou `..` reçoit du routeur une redirection 307 vers le chemin nettoyé, sans corps JSON. La règle des erreurs du routeur s'applique aussi : JSON lu seulement si la réponse est de type `application/json`.
 
 ---
 
@@ -513,7 +520,7 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
 - `t.Cleanup` ;
 - interfaces implicites : un type qui a les deux méthodes de `pgx.QueryTracer` en est un, sans le déclarer.
 
-**Commande :** `go test -count=1 ./...`. L'option `-count=1` désactive le cache des résultats, inadapté à des tests qui dépendent d'une base. Par défaut, `go test ./...` teste plusieurs paquets en même temps : si un second paquet utilise un jour la base de test, il faudra ajouter `-p 1`.
+**Commande :** `go test -count=1 ./...`. L'option `-count=1` désactive le cache des résultats, inadapté à des tests qui dépendent d'une base. Par défaut, `go test ./...` teste plusieurs paquets en même temps : depuis l'étape 7, un verrou consultatif PostgreSQL, pris par `testdb.Open`, fait passer l'un après l'autre les paquets qui utilisent la base de test.
 
 **Arrêt complet, base de test comprise :** `docker compose --profile test down`. Un simple `docker compose down` laisse `db-test` tourner.
 
@@ -521,16 +528,23 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
 
 ### Étape 7 : endpoint de validation (45 min)
 
-- **Contenu :**
-  - lecture du corps JSON ;
-  - validation du nom du préparateur (non vide, 50 caractères au maximum, sans caractère de contrôle : PostgreSQL refuse le caractère NUL, qui donnerait sinon une erreur 500 au lieu d'un 400) ;
-  - traduction des erreurs métier en codes HTTP par un `switch` sur `errors.Is`.
-- **Notions Go :** `json.Decoder`, `DisallowUnknownFields`, `http.MaxBytesReader`.
-- **Vérification :** requêtes HTTP (commandes fournies pour PowerShell et bash) :
-  - une première validation renvoie 200 ;
+- **Contenu :** l'API sera publique une fois déployée : chaque entrée est validée.
+  - identifiants du chemin : entiers positifs écrits avec des chiffres seulement et sans zéro en tête (`+101` et `0101` refusés : une ressource n'a qu'une adresse), lus par `strconv.ParseUint`, pour toutes les routes ;
+  - corps : en-tête `Content-Type: application/json` exigé (un paramètre comme `; charset=utf-8` est accepté), 1 024 octets au maximum (`http.MaxBytesReader`), un seul objet `{"picker": "..."}` sans autre champ (`DisallowUnknownFields`, et rien après l'objet) ;
+  - nom du préparateur : espaces de début et de fin retirés, obligatoire, 50 caractères au maximum (des caractères, pas des octets), au moins une lettre ou un chiffre, et seulement des caractères imprimables : `unicode.IsPrint` refuse les caractères de contrôle (NUL compris), les espaces spéciaux et les caractères de format invisibles, et `unicode.Other_Default_Ignorable_Code_Point` les quelques lettres qui s'affichent vides (U+3164). PostgreSQL refuse le caractère NUL : sans ce contrôle, il donnerait une erreur 500 au lieu d'un 400. L'UTF-8 invalide, que le décodeur JSON remplace par U+FFFD, a son propre message ;
+  - traduction des erreurs métier en codes HTTP par un `switch` sur `errors.Is` et `errors.As` (section 4.3), message du stock insuffisant construit par `InsufficientStockError.Quantities` ;
+  - en cas de succès, la commande relue par `GetOrder`, au même format que `GET /api/orders/{id}`. Si cette relecture échoue après une validation enregistrée, la réponse est 500 `erreur_interne`, avec un message qui le dit : « La validation est enregistrée, mais la commande n'a pas pu être relue. Rechargez la commande. » ;
+  - serveur : `ReadTimeout` (10 s) pour les clients qui envoient leur requête trop lentement, et `IdleTimeout` (2 minutes) pour les connexions inactives : plus long que le délai du client HTTP de .NET (1 minute), pour que ce soit toujours le client qui ferme une connexion inutilisée ;
+  - limites connues d'`encoding/json` : la comparaison des noms de champs ignore la casse (`"PICKER"` est accepté), et une clé en double garde sa dernière valeur. Sans conséquence avec un seul champ ; `encoding/json/v2`, plus strict, reste expérimental dans Go 1.27.
+- **Tests** (`net/http/httptest`, sur la base de test) : succès et format de la réponse, en-têtes `Content-Type` acceptés, chaque erreur métier, identifiants invalides et identifiant maximal, chaque corps refusé, limite de taille à l'octet près, noms acceptés et refusés (caractère interdit au début, au milieu ou à la fin), panne de base (500 sans détail technique, 503 pour `/health`), relecture impossible après une validation enregistrée, routes de lecture, réponses du routeur (404 et 405 en texte brut). Les en-têtes sont lus avec `rec.Result().Header`, c'est-à-dire ce que le client reçoit vraiment. Le paquet `internal/testdb` rassemble la connexion, le garde-fou (testé lui aussi), la remise à zéro et le traceur qui simule une panne, partagés avec les tests du store.
+- **Contrôle de l'efficacité des tests :** chaque mutation de la couche HTTP doit faire échouer un test, et pas seulement la compilation ; sans le verrou entre paquets, `go test ./...` doit échouer. Résultat : 58 mutations, toutes détectées.
+- **Notions Go :** `json.Decoder`, `DisallowUnknownFields`, `http.MaxBytesReader`, `mime.ParseMediaType`, `strconv.ParseUint`, `unicode.IsPrint`, `net/http/httptest`.
+- **Vérification :** requêtes HTTP avec `curl.exe`. Le corps est écrit dans un fichier temporaire par `[IO.File]::WriteAllText`, qui n'ajoute pas de BOM. Un tube PowerShell (`'...' | curl.exe`), `Set-Content -Encoding utf8` et `Out-File` en ajoutent un, que l'API refuse, comme le permet la norme JSON (RFC 8259, section 8.1). Et dans Windows PowerShell 5.1, les guillemets d'un JSON passé directement à `curl.exe -d` disparaissent.
+  - une première validation renvoie 200 et la commande mise à jour ;
   - la même validation renvoie ensuite 409 `deja_preparee` ;
   - une ligne de CMD-0004 renvoie 409 `stock_insuffisant` ;
-  - un nom de préparateur contenant `\u0000` renvoie 400 `requete_invalide`.
+  - un nom de préparateur contenant `\u0000` renvoie 400 `requete_invalide` ;
+  - remise à zéro de la base de démonstration, en une seule transaction : `docker compose exec -T db psql -U cairn -d cairn -v ON_ERROR_STOP=1 -1 -c "TRUNCATE order_lines, orders, products RESTART IDENTITY" -f /docker-entrypoint-initdb.d/002_seed.sql`.
 
 ### Étape 8 : écran liste des commandes (1 h 30)
 
@@ -557,7 +571,8 @@ Une relecture par mutations a introduit 66 erreurs plausibles, une à une, dans 
   - une carte par ligne : emplacement et quantité en très grand, nom du produit ;
   - bouton « Préparé » d'au moins 48 px de haut (64 px visés pour un usage avec des gants) ;
   - bouton désactivé pendant l'appel, et garde-fou côté serveur : un appui reçu pendant un appel en cours, ou sur une ligne déjà préparée, est ignoré (un double appui avec des gants ne doit pas produire un 409 pour une validation réussie) ;
-  - en cas de 409, message clair choisi d'après le code d'erreur, puis rechargement de la commande ;
+  - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, puis message clair choisi d'après le code d'erreur : la validation a pu être enregistrée malgré l'erreur, et un 409 `deja_preparee` reçu après un nouvel essai le confirme ;
+  - nom du préparateur affiché sans débordement (`overflow: hidden`), dans un élément `<bdi>` pour qu'un nom écrit de droite à gauche ne dérange pas le texte qui l'entoure ;
   - quand la commande est prête, un bandeau et un bouton de retour.
 - **Notions C# et Blazor :**
   - paramètres de route (`{Id:long}`) ;

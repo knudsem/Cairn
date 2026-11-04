@@ -7,13 +7,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/knudsem/cairn/api/internal/store"
+	"github.com/knudsem/cairn/api/internal/testdb"
 )
 
 // Cas 1 : la validation baisse le stock de la quantité exacte et enregistre
@@ -279,24 +276,6 @@ func TestPickLineUnknownOrderOrLine(t *testing.T) {
 	}
 }
 
-// interruptQuery est un traceur pgx : pgx appelle sa méthode TraceQueryStart
-// juste avant chaque requête SQL, et TraceQueryEnd juste après, un peu comme
-// un middleware. Ici, la requête dont le texte contient sql reçoit un contexte
-// déjà annulé : elle échoue avant même d'être envoyée, comme si l'appelant
-// abandonnait la validation à cet instant précis.
-type interruptQuery struct{ sql string }
-
-func (q interruptQuery) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
-	if strings.Contains(data.SQL, q.sql) {
-		canceled, cancel := context.WithCancel(ctx)
-		cancel()
-		return canceled
-	}
-	return ctx
-}
-
-func (interruptQuery) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
-
 // Une validation interrompue après la baisse du stock ne laisse aucune trace :
 // le Rollback annule aussi la baisse du stock et le marquage de la ligne. Le
 // cas 2 vérifie un refus pendant la baisse du stock ; ici, l'échec survient
@@ -308,16 +287,11 @@ func TestPickLineInterruptedAfterStockUpdateChangesNothing(t *testing.T) {
 	order := insertOrder(t, "CMD-1")
 	line := insertLine(t, order, product, 4)
 
-	// Un second pool, configuré comme celui des tests, avec le traceur en plus.
-	cfg := pool.Config()
-	cfg.ConnConfig.Tracer = interruptQuery{sql: "UPDATE orders"}
-	traced, err := pgxpool.NewWithConfig(t.Context(), cfg)
-	if err != nil {
-		t.Fatalf("pool avec traceur : %v", err)
-	}
-	defer closePool(traced)
+	// Un second pool, dont un traceur pgx fait échouer la requête de l'étape
+	// 4, celle qui contient « UPDATE orders » (voir testdb.InterruptingPool).
+	traced := testdb.InterruptingPool(t, pool, "UPDATE orders")
 
-	err = store.New(traced).PickLine(t.Context(), order, line, "Alice")
+	err := store.New(traced).PickLine(t.Context(), order, line, "Alice")
 
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("erreur = %v, attendu une interruption (context.Canceled) à l'étape 4", err)

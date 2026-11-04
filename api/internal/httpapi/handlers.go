@@ -90,14 +90,19 @@ func (h *handlers) listProducts(w http.ResponseWriter, r *http.Request) {
 }
 
 // parseID lit un identifiant pris dans le chemin : un entier strictement
-// positif. S'il est invalide, parseID répond 400 lui-même et renvoie false.
-// what nomme l'objet dans le message (« commande », « ligne »).
+// positif, écrit avec des chiffres seulement et sans zéro en tête (101, et
+// non +101 ni 0101), pour qu'une ressource n'ait qu'une seule adresse. S'il
+// est invalide, parseID répond 400 lui-même et renvoie false. what nomme
+// l'objet dans le message (« commande », « ligne »).
 func parseID(w http.ResponseWriter, raw, what string) (int64, bool) {
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
+	// ParseUint refuse tout signe (ParseInt accepterait « +101 ») ; avec 63
+	// bits, la valeur tient dans un int64. raw[0] n'est lu que si ParseUint a
+	// réussi, donc si raw n'est pas vide.
+	id, err := strconv.ParseUint(raw, 10, 63)
+	if err != nil || raw[0] == '0' {
 		writeError(w, http.StatusBadRequest, codeInvalidRequest,
-			fmt.Sprintf("Identifiant de %s invalide : %q. Un nombre entier positif est attendu.", what, raw))
+			fmt.Sprintf("Identifiant de %s invalide : %q. Un nombre entier positif, sans zéro en tête, est attendu.", what, raw))
 		return 0, false
 	}
-	return id, true
+	return int64(id), true
 }

@@ -71,6 +71,17 @@ func run() error {
 		// Délai maximal pour recevoir les en-têtes d'une requête : protège
 		// contre les clients qui envoient leur requête très lentement.
 		ReadHeaderTimeout: 5 * time.Second,
+		// Délai maximal pour recevoir toute la requête, corps compris : un
+		// client qui envoie son corps goutte à goutte ne garde pas la
+		// connexion indéfiniment.
+		ReadTimeout: 10 * time.Second,
+		// Une connexion inactive entre deux requêtes (keep-alive) est fermée
+		// après ce délai ; sans IdleTimeout, Go prendrait ReadTimeout. Le
+		// client HTTP de .NET ferme les siennes après 1 minute d'inactivité :
+		// avec 2 minutes, c'est toujours lui qui ferme le premier, et le
+		// serveur ne coupe jamais une connexion au moment où l'interface
+		// Blazor la réutilise.
+		IdleTimeout: 2 * time.Minute,
 	}
 
 	// Le port est ouvert avant d'annoncer l'écoute : s'il est déjà pris (par

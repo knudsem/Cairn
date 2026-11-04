@@ -11,10 +11,13 @@ import (
 // Codes d'erreur de l'API (docs/PLAN.md, section 4.3) : des valeurs stables,
 // que le programme client peut tester, à côté d'un message lisible.
 const (
-	codeInvalidRequest = "requete_invalide"
-	codeOrderNotFound  = "commande_introuvable"
-	codeInternal       = "erreur_interne"
-	codeDatabaseDown   = "base_indisponible"
+	codeInvalidRequest    = "requete_invalide"
+	codeOrderNotFound     = "commande_introuvable"
+	codeLineNotFound      = "ligne_introuvable"
+	codeAlreadyPicked     = "deja_preparee"
+	codeInsufficientStock = "stock_insuffisant"
+	codeInternal          = "erreur_interne"
+	codeDatabaseDown      = "base_indisponible"
 )
 
 // errorResponse est le format unique des erreurs renvoyées par les handlers
