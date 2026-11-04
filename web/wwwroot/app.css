@@ -1,6 +1,14 @@
-/* Feuille de style de Cairn : une interface de tablette, lisible à un mètre
-   et utilisable avec des gants (SCOPE.md, section 7). Couleurs du logo :
-   bleu nuit, crème et ocre. */
+/* Feuille de style de Cairn. Couleurs du logo : bleu nuit, crème et ocre.
+
+   Deux densités, choisies selon le type d'écran et non selon sa largeur :
+   - écran tactile (tablette, téléphone) : cibles de 64 px au moins, pour un
+     usage avec des gants, et texte de 20 px, lisible à un mètre ;
+   - souris (ordinateur) : boutons de 44 px et texte de 16 px, la densité
+     d'une application métier.
+   Les tailles sont des variables : chaque écran les utilise, sans valeur en
+   dur, et le système reste cohérent. Les valeurs tactiles sont celles par
+   défaut ; (pointer: fine), un pointeur précis comme une souris, les
+   remplace. La largeur de l'écran ne règle que la mise en page. */
 
 :root {
     --color-navy: #1B2A41;
@@ -12,6 +20,63 @@
     --color-warning: #8A4B00;
     --color-error: #A4161A;
     --color-pending: #4A5568;
+    /* Texte secondaire : 7,5:1 sur blanc, 6,6:1 sur crème. */
+    --color-muted: #4A5568;
+    /* Bordures : décorative (cartes), et marquée (champs, carte « Ajouter »,
+       3,9:1 sur blanc). */
+    --color-border: #E3DCCF;
+    --color-border-strong: #8A8170;
+    /* Fonds clairs : erreur (texte rouge à 6,6:1), emplacements en cours de
+       chargement, survol. */
+    --color-error-light: #FBE9E9;
+    --color-skeleton: #ECE6DB;
+    --color-hover-light: #F8F4EC;
+    --color-navy-hover: #2C3E5C;
+
+    /* Focus clavier : contour bleu nuit, 14:1 sur blanc, 12:1 sur crème. */
+    --focus-outline: 3px solid var(--color-navy);
+    --shadow-panel: 0 1px 2px rgba(27, 42, 65, 0.06), 0 12px 32px rgba(27, 42, 65, 0.10);
+    --shadow-hover: 0 4px 14px rgba(27, 42, 65, 0.12);
+
+    /* Tailles, écran tactile. */
+    --font-size-base: 1.25rem;
+    --font-size-small: 1.0625rem;
+    --font-size-h1: 2rem;
+    --font-size-h2: 1.5rem;
+    --control-height: 4rem;
+    --control-padding-x: 1.5rem;
+    --radius: 0.75rem;
+    --radius-panel: 1.25rem;
+    --header-height: 5rem;
+    --logo-height: 3rem;
+    --avatar-size: 3.5rem;
+    --card-min-width: 9rem;
+    --card-min-height: 8.5rem;
+    --panel-width: 40rem;
+    --panel-padding: 2rem;
+    --page-padding: 2rem;
+}
+
+/* Souris : densité d'une application de bureau. */
+@media (pointer: fine) {
+    :root {
+        --font-size-base: 1rem;
+        --font-size-small: 0.875rem;
+        --font-size-h1: 1.625rem;
+        --font-size-h2: 1.25rem;
+        --control-height: 2.75rem;
+        --control-padding-x: 1.125rem;
+        --radius: 0.5rem;
+        --radius-panel: 1rem;
+        --header-height: 3.75rem;
+        --logo-height: 2rem;
+        --avatar-size: 3rem;
+        --card-min-width: 8.5rem;
+        --card-min-height: 7.5rem;
+        --panel-width: 36rem;
+        --panel-padding: 2.5rem;
+        --page-padding: 3rem;
+    }
 }
 
 *,
@@ -25,31 +90,88 @@ body {
     background: var(--color-cream);
     color: var(--color-navy);
     font-family: system-ui, "Segoe UI", Roboto, sans-serif;
-    font-size: 1.25rem;
+    font-size: var(--font-size-base);
     line-height: 1.5;
 }
 
+/* Barre du haut : le logo à gauche, le profil choisi et « Changer » à
+   droite. Hauteur fixe, avec ou sans profil : la page ne saute pas. */
 .app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-height: var(--header-height);
+    padding: 0.375rem 2rem;
     background: var(--color-white);
-    border-bottom: 4px solid var(--color-ochre);
-    padding: 0.75rem 1.5rem;
+    border-bottom: 3px solid var(--color-ochre);
 }
 
 .app-logo {
     display: block;
-    height: 3.5rem;
+    flex: none;
+    height: var(--logo-height);
     width: auto;
 }
 
+/* Icône seule, utilisée sur téléphone quand un profil est affiché. */
+.app-logo-icon {
+    display: none;
+    flex: none;
+    height: var(--logo-height);
+    width: auto;
+}
+
+/* min-width: 0 permet au nom de rétrécir : un nom long est coupé par des
+   points de suspension au lieu d'élargir la page. */
+.app-picker {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+/* Pastille ronde à l'initiale du profil, comme sur « Qui prépare ? ». */
+.app-picker-avatar {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: calc(var(--control-height) * 0.75);
+    height: calc(var(--control-height) * 0.75);
+    border-radius: 50%;
+    background: var(--color-navy);
+    color: var(--color-cream);
+    font-size: var(--font-size-small);
+    font-weight: 700;
+}
+
+.app-picker-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.app-picker .button {
+    flex: none;
+    margin-left: 0.25rem;
+}
+
 .app-main {
-    max-width: 60rem;
-    margin: 0 auto;
-    padding: 1.5rem;
+    padding: var(--page-padding) 2rem;
 }
 
 h1 {
-    font-size: 2rem;
+    font-size: var(--font-size-h1);
+    line-height: 1.2;
     margin: 0 0 1.5rem;
+}
+
+/* Phrase d'introduction sous le titre. */
+.lead {
+    margin: -1rem 0 1.5rem;
+    color: var(--color-muted);
 }
 
 /* Blazor place le focus sur le titre après chaque navigation (Routes.razor). */
@@ -57,12 +179,23 @@ h1:focus {
     outline: none;
 }
 
-/* Gros bouton, utilisable avec des gants : 64 px de haut (48 px au minimum). */
+/* Panneau centré, blanc sur le fond crème : le contenu d'un écran simple. */
+.panel {
+    width: 100%;
+    max-width: var(--panel-width);
+    margin: 0 auto;
+    padding: var(--panel-padding);
+    border-radius: var(--radius-panel);
+    background: var(--color-white);
+    box-shadow: var(--shadow-panel);
+}
+
+/* Bouton principal. Hauteur : 64 px au toucher, 44 px à la souris. */
 .button {
-    min-height: 4rem;
-    padding: 0 2rem;
+    min-height: var(--control-height);
+    padding: 0 var(--control-padding-x);
     border: 0;
-    border-radius: 0.5rem;
+    border-radius: var(--radius);
     background: var(--color-navy);
     color: var(--color-cream);
     font: inherit;
@@ -71,21 +204,115 @@ h1:focus {
 }
 
 .button:disabled {
-    opacity: 0.5;
+    opacity: 0.6;
     cursor: default;
 }
 
 .button:focus-visible {
-    outline: 4px solid var(--color-ochre);
+    outline: var(--focus-outline);
     outline-offset: 2px;
+}
+
+/* Bouton secondaire : fond blanc, bordure bleu nuit. */
+.button-secondary {
+    border: 2px solid var(--color-navy);
+    background: var(--color-white);
+    color: var(--color-navy);
+}
+
+/* Survol à la souris seulement : sur un écran tactile, l'effet resterait
+   affiché après l'appui. */
+@media (hover: hover) {
+    .button:hover:not(:disabled) {
+        background: var(--color-navy-hover);
+    }
+
+    .button-secondary:hover:not(:disabled) {
+        background: var(--color-hover-light);
+    }
+}
+
+/* Bouton sur toute la largeur de son conteneur. */
+.button-wide {
+    width: 100%;
+}
+
+/* Champ de formulaire : libellé au-dessus, champ de la hauteur des boutons. */
+.field-label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.field-input {
+    display: block;
+    width: 100%;
+    min-height: var(--control-height);
+    padding: 0 1rem;
+    border: 2px solid var(--color-border-strong);
+    border-radius: var(--radius);
+    background: var(--color-white);
+    color: var(--color-navy);
+    font: inherit;
+}
+
+.field-input:focus-visible {
+    border-color: var(--color-navy);
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.field-input[aria-invalid="true"] {
+    border-color: var(--color-error);
+}
+
+/* Message d'erreur sous un champ : une icône et un texte, jamais la
+   couleur seule. */
+.field-error {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    margin: 0.75rem 0 0;
+    color: var(--color-error);
+    font-weight: 600;
+}
+
+.field-error-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 1.75em;
+    height: 1.75em;
+    border-radius: 50%;
+    background: var(--color-error);
+    color: var(--color-white);
+    font-weight: 800;
+}
+
+/* Encadré d'erreur d'un chargement, avec le bouton « Réessayer ». */
+.alert-error {
+    padding: 1.25rem 1.5rem 1.5rem;
+    border-radius: var(--radius);
+    background: var(--color-error-light);
+}
+
+.alert-error p {
+    margin: 0 0 1rem;
+}
+
+.alert-title {
+    margin: 0 0 0.5rem;
+    color: var(--color-error);
+    font-size: var(--font-size-h2);
+    line-height: 1.25;
 }
 
 /* État affiché : une couleur, et toujours un texte. */
 .status {
     display: inline-block;
     margin: 0 0 1.5rem;
-    padding: 0.75rem 1.25rem;
-    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius);
     color: var(--color-white);
     font-weight: 600;
 }
@@ -104,6 +331,13 @@ h1:focus {
 
 .status-pending {
     background: var(--color-pending);
+}
+
+/* Texte d'un chargement en cours. */
+.loading {
+    margin: 0 0 1rem;
+    color: var(--color-muted);
+    font-weight: 600;
 }
 
 /* Bandeau d'erreur de Blazor (App.razor), masqué tant que tout va bien. */
@@ -147,3 +381,48 @@ h1:focus {
     .blazor-error-boundary::after {
         content: "Une erreur s'est produite."
     }
+
+/* Téléphone (moins de 480 px de large) : mise en page resserrée. Les tailles
+   des cibles restent celles du toucher. Aucun élément ne doit dépasser la
+   largeur de l'écran. */
+@media (max-width: 30rem) {
+    .app-header {
+        gap: 0.5rem;
+        padding: 0.375rem 1rem;
+    }
+
+    .app-logo {
+        height: 2.5rem;
+    }
+
+    /* Avec un profil, l'icône remplace le logo complet, et la pastille
+       disparaît : la place revient au nom du préparateur. */
+    .app-header-with-picker .app-logo {
+        display: none;
+    }
+
+    .app-header-with-picker .app-logo-icon {
+        display: block;
+        height: 2.5rem;
+    }
+
+    .app-picker-avatar {
+        display: none;
+    }
+
+    .app-picker .button {
+        padding: 0 1rem;
+    }
+
+    .app-main {
+        padding: 1rem 0.75rem;
+    }
+
+    .panel {
+        padding: 1.5rem 1.25rem;
+    }
+
+    h1 {
+        font-size: 1.625rem;
+    }
+}

@@ -103,7 +103,7 @@ Les erreurs sont renvoyées dans un format JSON unique, par exemple `{ "error": 
 3. **Préparation d'une commande** : une carte par ligne avec le produit, la quantité en très grand, l'emplacement bien visible, et un gros bouton « Préparé ».
 
 Règles d'ergonomie :
-- Boutons d'au moins 48 px de haut, utilisables avec des gants.
+- Sur écran tactile (tablette, téléphone), boutons d'au moins 64 px de haut, utilisables avec des gants ; à la souris (ordinateur), boutons de 40 à 48 px, avec la densité d'une application de bureau.
 - Texte lisible à un mètre, contraste élevé.
 - Retour immédiat après chaque action : confirmation, ou message d'erreur clair en cas de stock insuffisant.
 - Pas de jargon technique dans les messages affichés.

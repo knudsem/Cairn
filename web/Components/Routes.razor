@@ -1,6 +1,26 @@
+@inject PickerState PickerState
+
+@* Le routeur choisit la page d'après l'adresse. Sans profil choisi, toute page
+   absente de PagesWithoutPicker est remplacée par un renvoi vers « Qui
+   prépare ? » : elle ne s'affiche pas et n'appelle pas l'API. *@
 <Router AppAssembly="typeof(Program).Assembly" NotFoundPage="typeof(Pages.NotFound)">
     <Found Context="routeData">
-        <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
-        <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        @if (PickerState.Current is null && !PagesWithoutPicker.Contains(routeData.PageType))
+        {
+            <RedirectToPickers />
+        }
+        else
+        {
+            <RouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)" />
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        }
     </Found>
 </Router>
+
+@code {
+    // Pages accessibles sans profil choisi. Une nouvelle page est donc protégée
+    // par défaut, comme avec le LoginRequiredMiddleware de Django : seules les
+    // pages listées ici y échappent.
+    private static readonly HashSet<Type> PagesWithoutPicker =
+        [typeof(Pages.Pickers), typeof(Pages.NotFound), typeof(Pages.Error)];
+}

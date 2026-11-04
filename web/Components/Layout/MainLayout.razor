@@ -1,9 +1,42 @@
 @inherits LayoutComponentBase
+@inject PickerState PickerState
+@inject NavigationManager Nav
 
-<header class="app-header">
+@* Mise en page commune : la barre du haut (logo, profil choisi, « Changer »),
+   puis la page affichée (@Body). *@
+<header class="app-header @(PickerState.Current is null ? null : "app-header-with-picker")">
     <img class="app-logo" src="@Assets["cairn-logo.svg"]" alt="Cairn" width="183" height="60" />
+    @* Sur téléphone, avec un profil affiché, l'icône seule remplace le logo
+       complet (app.css) : le nom du préparateur garde de la place. *@
+    <img class="app-logo-icon" src="@Assets["cairn-icon.svg"]" alt="Cairn" width="60" height="60" />
+    @if (PickerState.Current is { } picker)
+    {
+        <div class="app-picker">
+            <span class="app-picker-avatar" aria-hidden="true">@picker.Initial</span>
+            @* Un nom trop long pour la largeur est coupé par des points de
+               suspension ; title montre le nom entier au survol. dir="auto"
+               prend le sens d'écriture du nom : un nom arabe est coupé à sa
+               fin (à gauche), et non à son début. *@
+            <span class="app-picker-name" dir="auto" title="@picker.Name">@picker.Name</span>
+            <button type="button" class="button button-secondary" aria-label="Changer de profil" @onclick="ChangePicker">Changer</button>
+        </div>
+    }
 </header>
 
 <main class="app-main">
     @Body
 </main>
+
+@code {
+    // « Changer » oublie le profil, puis ouvre « Qui prépare ? », qui ramènera
+    // à la page actuelle une fois un profil choisi. L'adresse de retour est
+    // calculée avant la navigation, sur la page actuelle.
+    private void ChangePicker()
+    {
+        var pickersUrl = Pages.Pickers.UrlFor(Nav);
+        PickerState.Clear();
+        // replace: true : pas de doublon de la page actuelle dans l'historique,
+        // où « Retour » ne changerait rien à l'écran.
+        Nav.NavigateTo(pickersUrl, replace: true);
+    }
+}

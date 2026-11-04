@@ -115,7 +115,8 @@ Cairn/
     State/
       PickerState.cs           profil du préparateur choisi pour la session
     Components/
-      App.razor, Routes.razor, _Imports.razor   (générés)
+      App.razor, Routes.razor, _Imports.razor   (générés ; Routes.razor renvoie les pages sans profil)
+      RedirectToPickers.razor  renvoi vers « Qui prépare ? » (étape 7 bis)
       Layout/
         MainLayout.razor       barre du haut : nom du profil et bouton « Changer »
       Pages/
@@ -625,13 +626,14 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 #### 7 bis.2 : écran « Qui prépare ? » (1 h 30)
 
 - **Contenu :**
-  - écran « Qui prépare ? » (`/pickers`) : les profils de l'API en gros boutons (64 px de haut au moins), dans l'ordre de l'API, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler » ;
+  - écran « Qui prépare ? » (`/pickers`) : un panneau centré, blanc sur le fond crème (36 rem de large à la souris, 40 rem au toucher). Les profils, dans l'ordre de l'API, en cartes sur une grille : une pastille ronde à l'initiale (bleu nuit et crème), le nom en dessous ; survol à la souris (bordure et pastille ocre), focus clavier visible. La dernière carte, en pointillés avec un « + », est « Ajouter un profil » : elle remplace la grille par le formulaire « Nouveau profil », dans le même panneau, avec le champ « Nom du profil » et les boutons « Créer » et « Annuler ». « Annuler » revient à la liste, relue pour montrer aussi les profils créés entre-temps ;
+  - états de la liste : chargement (emplacements des boutons), encadré « Impossible de charger les profils » avec le message et « Réessayer », liste vide ;
   - « Créer » est désactivé pendant l'appel, pour ne pas envoyer deux fois la même création. En cas de succès, le nouveau profil est choisi d'office, avec le nom renvoyé par l'API (nettoyé de ses espaces en trop) et non le texte saisi ; sinon, un message sous le champ, choisi d'après le code d'erreur : « Ce profil existe déjà : choisissez-le dans la liste. », « 20 profils au maximum : choisissez un profil existant. », ou le message de l'API pour un nom refusé ;
-  - `PickerState` (service « scoped ») garde le profil choisi pour la session. Une page ouverte sans profil choisi renvoie vers « Qui prépare ? », puis vers la page demandée (une adresse relative seulement) ;
-  - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui ramène à « Qui prépare ? » ;
-  - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient`, JSON d'une erreur lu seulement si la réponse est de type `application/json`, `JsonException` sans coupure du circuit Blazor, état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
-- **Notions C# et Blazor :** service « scoped », `NavigationManager`, `@bind`, rendu conditionnel, `PostAsJsonAsync` et lecture du code HTTP.
-- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Karim », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Karim » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; après la remise à zéro et un rechargement, les trois profils d'origine.
+  - `PickerState` (service « scoped ») garde le profil choisi pour la session, c'est-à-dire pour le circuit Blazor : après un rechargement de la page, le préparateur choisit de nouveau son profil. Une page ouverte sans profil choisi renvoie vers « Qui prépare ? », puis vers la page demandée. Le renvoi se fait dans `Routes.razor` : sans profil, toute page absente d'une courte liste (« Qui prépare ? », page introuvable, page d'erreur) est remplacée par le renvoi, sans s'afficher ni appeler l'API. L'adresse de retour n'accepte qu'un chemin relatif du site (liste blanche de caractères), pour éviter une redirection ouverte ;
+  - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui oublie le profil et ramène à « Qui prépare ? », puis à la page en cours une fois un profil choisi. Sur téléphone, l'icône seule remplace alors le logo complet, pour laisser la place au nom ;
+  - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient` ; chaque appel renvoie un `ApiResult<T>`, la valeur ou la raison de l'échec (API injoignable ou délai dépassé, refus de l'API avec son code et son message, réponse inattendue), sans exception qui couperait le circuit Blazor ; JSON d'une erreur lu seulement si la réponse est de type `application/json` ; JSON lu strictement (un champ absent ou `null` à tort donne une réponse inattendue) ; état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
+- **Notions C# et Blazor :** service « scoped », `NavigationManager`, `[SupplyParameterFromQuery]`, `@bind`, `@ref` et `FocusAsync`, rendu conditionnel, `record`, expression `switch` sur des propriétés, lecture du code HTTP.
+- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Karim », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Karim » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; « Changer » ramène à « Qui prépare ? » ; API arrêtée, l'encadré d'erreur et « Réessayer » ; après la remise à zéro et un rechargement, les trois profils d'origine. Vérifié aussi dans Edge avec Playwright, en 1440 x 900, 820 x 1180 et 390 x 844.
 - **Documentation :** [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [navigation](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/navigation), [liaison de données](https://learn.microsoft.com/aspnet/core/blazor/components/data-binding), [LOCK](https://www.postgresql.org/docs/18/sql-lock.html), [index sur une expression](https://www.postgresql.org/docs/18/indexes-expressional.html), [collations](https://www.postgresql.org/docs/18/collation.html)
 
 ### Étape 8 : écran liste des commandes (1 h 15)
@@ -656,7 +658,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 
 - **Contenu :**
   - une carte par ligne : emplacement et quantité en très grand, nom du produit ;
-  - bouton « Préparé » d'au moins 48 px de haut (64 px visés pour un usage avec des gants) ; la validation envoie le nom du profil choisi (`PickerState`, étape 7 bis) ;
+  - bouton « Préparé » à la hauteur des contrôles (`--control-height` : 64 px au toucher, pour un usage avec des gants, 44 px à la souris) ; la validation envoie le nom du profil choisi (`PickerState`, étape 7 bis) ;
   - priorité d'affichage : ordinateur et tablette d'abord ; mobile utilisable, finitions après le déploiement (section 6, priorités) ;
   - bouton désactivé pendant l'appel, et garde-fou côté serveur : un appui reçu pendant un appel en cours, ou sur une ligne déjà préparée, est ignoré (un double appui avec des gants ne doit pas produire un 409 pour une validation réussie) ;
   - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, puis message clair choisi d'après le code d'erreur : la validation a pu être enregistrée malgré l'erreur, et un 409 `deja_preparee` reçu après un nouvel essai le confirme ;
@@ -681,6 +683,14 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 - Affichage tablette dans les outils de développement du navigateur.
 - API coupée puis navigateur hors ligne : la fenêtre de reconnexion apparaît.
 - **Documentation :** [SignalR et Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/signalr)
+
+### Relecture finale du projet complet (2 h 45)
+
+Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d'étape de 16 h 30) :
+
+1. relecture complète par Claude : plusieurs relecteurs, chacun sur un angle (règles métier et concurrence, API, interface, tests, Docker et documentation), puis contre-vérification de chaque constat ;
+2. relecture par un autre modèle, qui rend un rapport sans modifier le code ;
+3. corrections ensemble, par ordre de gravité, chacune vérifiée par les tests.
 
 ### Étape 11 : déploiement en ligne (1 h)
 
@@ -816,10 +826,39 @@ NOTES.md en fournit la matière.
 - **Effet sur l'avance :** il en reste environ 2 h, mercredi soir. Si les étapes 8 et 9 dépassent jeudi leurs créneaux autant que les précédentes, le déploiement (étape 11) est le premier poste menacé, comme le prévoient les priorités ci-dessous ; il peut passer en soirée.
 - **Pour tenir :** relectures complètes (plusieurs relecteurs, mutations) pour le code Go, où se trouvent les règles et les tests ; une seule relecture indépendante pour les écrans, qui n'ont pas de tests automatiques.
 
+### Point d'étape du mercredi 4 novembre, 16 h 30
+
+- **Fait :** étape 7 bis.1 terminée à 16 h 15, relecture complète comprise, au lieu de 17 h.
+- **Relectures, à partir de l'étape 7 bis.2 :** une seule relecture indépendante par étape (7 bis.2, 8, 9, 10 et 11), sans contre-vérification multiple ni mutations. Une étape qui modifie du code touchant au stock, à la validation d'une ligne ou à la concurrence garde la relecture complète (plusieurs relecteurs et contre-vérification ; les mutations ne valent que pour du code couvert par des tests). L'étape 9 est dans ce cas : elle envoie la validation d'une ligne et doit résister au double appui.
+- **Ajout : relecture finale du projet complet**, après l'étape 10 et avant le déploiement :
+  1. relecture complète par Claude : plusieurs relecteurs, contre-vérification (1 h 15) ;
+  2. relecture par un autre modèle, qui rend un rapport sans modifier le code (45 min). Aucune des deux ne modifie le code : elles sont lancées en même temps, et le README (étape 12) avance pendant qu'elles tournent ;
+  3. corrections ensemble, par ordre de gravité (1 h 30).
+
+  Durée réaliste : 2 h 45, ou 3 h 30 si les deux relectures se suivent.
+
+| Horaire | Contenu |
+|---|---|
+| Mercredi, 16 h 45 à 19 h 30 | Étape 7 bis.2 : écran « Qui prépare ? » |
+| Mercredi, 19 h 30 à 20 h 30 | Pause |
+| Mercredi, 20 h 30 à 22 h 30 | Étape 8 : liste des commandes |
+| Jeudi, 8 h 30 à 12 h | Étape 9 : écran de préparation, avec relecture complète |
+| Jeudi, 12 h à 12 h 45 | Pause |
+| Jeudi, 12 h 45 à 13 h 45 | Étape 10 : vérifications de bout en bout |
+| Jeudi, 13 h 45 à 15 h | **Relecture finale**, première partie : les deux relectures, en même temps ; rédaction du README pendant ce temps |
+| Jeudi, 15 h à 16 h 30 | **Relecture finale**, seconde partie : corrections par ordre de gravité |
+| Jeudi, 16 h 30 à 18 h 30 | **Préparation de la présentation (2 h)** |
+| Jeudi, 18 h 30 à 19 h | **Répétition (30 min)** |
+| Jeudi, soirée | Capture et vidéo (étape 12), déploiement (étape 11), livraison |
+
+- **Effet :** l'avance de mercredi absorbe la relecture finale, mais le déploiement passe en soirée, après la répétition, comme le prévoyaient déjà les priorités. Si la relecture finale déborde, les corrections s'arrêtent à 16 h 30 : les constats graves sont traités avant, les autres après le déploiement. La préparation de la présentation ne recule pas.
+
 ### Priorités en cas de retard
 
 - **Supprimés en premier :** les évolutions optionnelles, puis les finitions visuelles, puis le déploiement en ligne.
+- **Relecture finale :** les relectures elles-mêmes ne sont pas réduites ; les corrections se font par ordre de gravité, et les constats mineurs qui n'ont pas pu être traités avant 16 h 30 passent après le déploiement.
 - **Si l'étape 7 bis déborde nettement de son estimation réaliste (5 h) :** on fait le point avant de continuer. La liste des profils et le choix du profil restent, car les étapes 8 et 9 en dépendent ; le formulaire « + Ajouter un profil » passe après le déploiement. La route de création reste dans l'API, testée.
+- **Tailles, pour tous les écrans (décidé le 4 novembre au soir) :** deux densités selon le type d'écran, et non selon sa largeur, avec les requêtes média `(pointer: coarse)` et `(pointer: fine)`. Au toucher (tablette, téléphone) : contrôles de 64 px au moins, texte de 20 px. À la souris (ordinateur) : contrôles de 44 px (40 à 48), texte de 16 px, titres proportionnés, en-tête de 60 px. Ces tailles sont des variables CSS de `app.css` (`--control-height`, `--font-size-base`, `--header-height`...), utilisées par tous les écrans, sans valeur en dur. La largeur ne règle que la mise en page. Contenu simple dans un panneau centré plutôt que collé à gauche ; cartes avec survol et focus clavier visible (contour bleu nuit).
 - **Écrans (étapes 7 bis.2, 8 et 9) :** d'abord l'ordinateur et la tablette, qui servent à la démonstration. La version mobile doit rester utilisable : sur un téléphone (390 px de large), pas de défilement horizontal, tout le texte lisible et chaque bouton accessible. Ses finitions passent après le déploiement.
 - **Jamais réduits :** les tests, le README, le créneau de préparation de la présentation et la répétition.
 

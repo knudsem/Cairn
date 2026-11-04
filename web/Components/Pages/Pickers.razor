@@ -1,0 +1,293 @@
+@page "/pickers"
+@using System.Diagnostics.CodeAnalysis
+@inject CairnApiClient Api
+@inject PickerState PickerState
+@inject NavigationManager Nav
+
+@* Écran « Qui prépare ? » (docs/PLAN.md, étape 7 bis) : le préparateur choisit
+   son profil, ou crée le sien. Un panneau centré, avec deux affichages sur la
+   même adresse : la grille des profils, et le formulaire « Nouveau profil »,
+   qui la remplace dans le panneau. *@
+
+<div class="panel">
+    @if (!adding)
+    {
+        <PageTitle>Qui prépare ? - Cairn</PageTitle>
+
+        <div class="picker-head">
+            <h1>Qui prépare ?</h1>
+            <p class="lead">Choisissez votre nom avant d'ouvrir une commande.</p>
+        </div>
+
+        @if (loadError is not null)
+        {
+            @* role="alert" : un lecteur d'écran annonce l'erreur dès qu'elle apparaît. *@
+            <div class="alert-error" role="alert">
+                <h2 class="alert-title">Impossible de charger les profils</h2>
+                <p>@loadError.UserMessage</p>
+                <p>Si le problème continue, prévenez votre responsable.</p>
+                <button type="button" class="button button-wide" @onclick="RetryAsync">Réessayer</button>
+            </div>
+        }
+        else if (pickers is null)
+        {
+            <p class="loading picker-status" role="status">Chargement des profils...</p>
+            @* Emplacements des futures cartes, décoratifs : cachés aux lecteurs d'écran. *@
+            <div class="picker-grid" aria-hidden="true">
+                @for (var i = 0; i < 3; i++)
+                {
+                    <div class="picker-card picker-skeleton">
+                        <span class="picker-avatar"></span>
+                        <span class="picker-skeleton-line"></span>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            @if (pickers.Count == 0)
+            {
+                <p class="picker-status">Aucun profil pour l'instant : ajoutez le vôtre.</p>
+            }
+            <div class="picker-grid">
+                @foreach (var picker in pickers)
+                {
+                    @* La pastille est décorative (aria-hidden) : le nom suffit à
+                       un lecteur d'écran. dir="auto" isole le nom : un nom écrit
+                       de droite à gauche s'affiche dans son sens. *@
+                    <button type="button" class="picker-card" @onclick="() => Choose(picker)">
+                        <span class="picker-avatar" aria-hidden="true">@picker.Initial</span>
+                        <span class="picker-name" dir="auto">@picker.Name</span>
+                    </button>
+                }
+                <button type="button" class="picker-card picker-card-add" @ref="addButton" @onclick="StartAdding">
+                    <span class="picker-avatar" aria-hidden="true">+</span>
+                    <span class="picker-name">Ajouter un profil</span>
+                </button>
+            </div>
+        }
+    }
+    else
+    {
+        <PageTitle>Nouveau profil - Cairn</PageTitle>
+
+        <div class="picker-head">
+            <h1>Nouveau profil</h1>
+            <p class="lead">Votre nom, tel qu'il apparaîtra sur les lignes préparées.</p>
+        </div>
+
+        @* @onsubmit:preventDefault : le navigateur n'envoie pas le formulaire
+           lui-même, ce qui rechargerait la page ; CreateAsync s'en charge. La
+           touche Entrée dans le champ envoie aussi le formulaire. *@
+        <form @onsubmit="CreateAsync" @onsubmit:preventDefault>
+            <label class="field-label" for="picker-name">Nom du profil</label>
+            @* @bind:event="oninput" : newName suit chaque frappe, et non la
+               sortie du champ ; aria-invalid et aria-describedby relient le
+               message d'erreur au champ, pour un lecteur d'écran. *@
+            <input id="picker-name" class="field-input" @ref="nameInput"
+                   @bind="newName" @bind:event="oninput"
+                   autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done"
+                   aria-invalid="@(formError is null ? "false" : "true")"
+                   aria-describedby="@(formError is null ? null : "picker-name-error")" />
+            @if (formError is not null)
+            {
+                <p id="picker-name-error" class="field-error" role="alert">
+                    <span class="field-error-icon" aria-hidden="true">!</span>
+                    <span>@formError</span>
+                </p>
+            }
+            <div class="form-actions">
+                <button type="submit" class="button" disabled="@creating">@(creating ? "Création..." : "Créer")</button>
+                <button type="button" class="button button-secondary" disabled="@creating" @onclick="CancelAsync">Annuler</button>
+            </div>
+        </form>
+    }
+</div>
+
+@code {
+    /// <summary>
+    /// Page à rouvrir une fois le profil choisi, lue dans l'adresse :
+    /// pickers?returnUrl=orders%2F5. Absente, c'est l'accueil.
+    /// </summary>
+    [SupplyParameterFromQuery]
+    public string? ReturnUrl { get; set; }
+
+    // Liste des profils : null tant qu'elle n'est pas chargée, ou si le
+    // dernier chargement a échoué (loadError dit alors pourquoi).
+    private IReadOnlyList<Picker>? pickers;
+    private ApiError? loadError;
+    private bool loading;
+
+    // Formulaire « Nouveau profil ».
+    private bool adding;
+    private string newName = "";
+    private string? formError;
+    private bool creating;
+    // Heure d'ouverture du formulaire : voir CancelAsync.
+    private DateTime addingSince;
+
+    // Éléments qui reçoivent le focus, et focus à placer au prochain rendu.
+    private ElementReference nameInput;
+    private ElementReference addButton;
+    private bool focusNameInput;
+    private bool focusAddButton;
+
+    /// <summary>
+    /// Adresse de « Qui prépare ? » qui ramène ensuite à la page actuelle,
+    /// par exemple pickers?returnUrl=orders%2F5. Utilisée par le renvoi d'une
+    /// page ouverte sans profil, et par le bouton « Changer ».
+    /// </summary>
+    public static string UrlFor(NavigationManager nav)
+    {
+        // Adresse de la page actuelle, sans celle du site : orders/5.
+        var current = nav.ToBaseRelativePath(nav.Uri);
+        return IsSafeReturnUrl(current) ? "pickers?returnUrl=" + Uri.EscapeDataString(current) : "pickers";
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Un élément ne peut recevoir le focus qu'une fois affiché, donc
+        // après le rendu : le champ quand le formulaire s'ouvre ou refuse le
+        // nom, la carte « Ajouter un profil » au retour à la liste.
+        try
+        {
+            if (focusNameInput)
+            {
+                focusNameInput = false;
+                await nameInput.FocusAsync();
+            }
+            else if (focusAddButton)
+            {
+                focusAddButton = false;
+                await addButton.FocusAsync();
+            }
+        }
+        catch (JSException)
+        {
+            // Un rendu suivant a pu retirer l'élément entre-temps : après
+            // « Annuler », un rechargement qui échoue vite remplace la liste
+            // par l'encadré d'erreur. Sans ce try, l'exception couperait le
+            // circuit Blazor.
+        }
+    }
+
+    // Charge la liste. Pendant un rechargement, l'ancienne liste reste
+    // affichée : pas de clignotement.
+    private async Task LoadAsync()
+    {
+        loading = true;
+        loadError = null;
+        var result = await Api.GetPickersAsync();
+        if (result.IsSuccess)
+        {
+            pickers = result.Value;
+        }
+        else
+        {
+            pickers = null;
+            loadError = result.Error;
+        }
+        loading = false;
+    }
+
+    private async Task RetryAsync()
+    {
+        // Un second appui peut arriver avant que le bouton disparaisse de
+        // l'écran : il est ignoré pendant un chargement.
+        if (loading)
+        {
+            return;
+        }
+        pickers = null;
+        await LoadAsync();
+        // Le bouton « Réessayer » a disparu : le focus va sur la carte
+        // « Ajouter un profil » plutôt que de se perdre.
+        focusAddButton = pickers is not null;
+    }
+
+    // Choisit le profil et ouvre la page demandée. replace: true : le bouton
+    // « Retour » du navigateur ne ramène pas à « Qui prépare ? ».
+    private void Choose(Picker picker)
+    {
+        PickerState.Choose(picker);
+        Nav.NavigateTo(IsSafeReturnUrl(ReturnUrl) ? ReturnUrl : Nav.BaseUri, replace: true);
+    }
+
+    private void StartAdding()
+    {
+        adding = true;
+        addingSince = DateTime.UtcNow;
+        newName = "";
+        formError = null;
+        focusNameInput = true;
+    }
+
+    private async Task CreateAsync()
+    {
+        // Un second appui (ou la touche Entrée) peut partir avant que le
+        // bouton soit désactivé à l'écran : il est ignoré pendant l'appel.
+        if (creating)
+        {
+            return;
+        }
+        creating = true;
+        formError = null;
+        var result = await Api.CreatePickerAsync(newName);
+        if (result.IsSuccess)
+        {
+            // Le profil renvoyé par l'API porte le nom enregistré, nettoyé
+            // de ses espaces en trop, et non le texte saisi.
+            Choose(result.Value);
+            return;
+        }
+        creating = false;
+        formError = result.Error.Code switch
+        {
+            "profil_existant" => "Ce profil existe déjà : choisissez-le dans la liste.",
+            "trop_de_profils" => "20 profils au maximum : choisissez un profil existant.",
+            // Nom refusé (400) : le message de l'API dit pourquoi ; sinon,
+            // serveur absent ou en erreur.
+            _ => result.Error.UserMessage,
+        };
+        focusNameInput = true;
+    }
+
+    private async Task CancelAsync()
+    {
+        // Avec des gants, le second appui d'un double appui sur « Ajouter un
+        // profil » peut toucher « Annuler », qui apparaît dans le même
+        // panneau : un appui dans la demi-seconde qui suit l'ouverture est
+        // ignoré.
+        if (creating || DateTime.UtcNow - addingSince < TimeSpan.FromMilliseconds(500))
+        {
+            return;
+        }
+        adding = false;
+        formError = null;
+        focusAddButton = true;
+        // La liste est relue : elle montre aussi les profils créés entre-temps
+        // sur une autre tablette, par exemple celui que « Ce profil existe
+        // déjà » désigne.
+        await LoadAsync();
+    }
+
+    /// <summary>
+    /// Vrai si returnUrl est une adresse relative du site, comme orders/5 : un
+    /// premier caractère lettre ou chiffre, puis seulement des lettres, des
+    /// chiffres et les signes / - _ . ? = &amp; % (liste blanche). Une adresse
+    /// vers un autre site (https://..., //autre-site, javascript:...) est donc
+    /// refusée : sans ce contrôle, un lien piégé pourrait envoyer le
+    /// préparateur ailleurs après son choix (redirection ouverte). Un retour
+    /// vers « Qui prépare ? » lui-même est refusé aussi.
+    /// </summary>
+    private static bool IsSafeReturnUrl([NotNullWhen(true)] string? returnUrl) =>
+        !string.IsNullOrEmpty(returnUrl)
+        && char.IsAsciiLetterOrDigit(returnUrl[0])
+        && returnUrl.All(c => char.IsAsciiLetterOrDigit(c) || c is '/' or '-' or '_' or '.' or '?' or '=' or '&' or '%')
+        && !returnUrl.StartsWith("pickers", StringComparison.OrdinalIgnoreCase);
+}

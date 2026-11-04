@@ -1,0 +1,163 @@
+/* Styles propres à l'écran « Qui prépare ? ». CSS isolé : Blazor ne les
+   applique qu'aux éléments de Pickers.razor, comme un module CSS en React.
+   Le panneau, les boutons, les champs et les messages communs sont dans
+   wwwroot/app.css, avec les variables de taille (toucher ou souris). */
+
+.picker-head {
+    text-align: center;
+    margin-bottom: 1.75rem;
+}
+
+.picker-head h1 {
+    margin-bottom: 1.5rem;
+}
+
+.picker-status {
+    text-align: center;
+}
+
+/* Grille des profils : autant de colonnes que la largeur le permet. Trois
+   dans le panneau sur ordinateur et tablette, deux sur téléphone. */
+.picker-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width), 1fr));
+    gap: 0.75rem;
+}
+
+/* Une carte de profil : la pastille à l'initiale, le nom en dessous. Un nom
+   long passe à la ligne au lieu d'élargir la carte. */
+.picker-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    min-height: var(--card-min-height);
+    padding: 1rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-white);
+    color: var(--color-navy);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.picker-card:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+.picker-card:active {
+    background: var(--color-hover-light);
+}
+
+/* Pastille ronde : bleu nuit et crème (12:1). */
+.picker-avatar {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: var(--avatar-size);
+    height: var(--avatar-size);
+    border-radius: 50%;
+    background: var(--color-navy);
+    color: var(--color-cream);
+    font-size: calc(var(--avatar-size) * 0.42);
+    font-weight: 700;
+    line-height: 1;
+}
+
+.picker-name {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center;
+    line-height: 1.25;
+}
+
+/* « Ajouter un profil » : la dernière carte, en pointillés, avec un « + ». */
+.picker-card-add {
+    border: 2px dashed var(--color-border-strong);
+    background: transparent;
+}
+
+.picker-card-add .picker-avatar {
+    background: var(--color-cream);
+    color: var(--color-navy);
+    font-size: calc(var(--avatar-size) * 0.6);
+    font-weight: 400;
+}
+
+/* Survol à la souris : la carte se soulève, sa bordure et sa pastille
+   prennent l'ocre (bleu nuit sur ocre : 6,3:1). */
+@media (hover: hover) {
+    .picker-card:hover {
+        border-color: var(--color-ochre);
+        box-shadow: var(--shadow-hover);
+        transform: translateY(-2px);
+    }
+
+    .picker-card:hover .picker-avatar {
+        background: var(--color-ochre);
+        color: var(--color-navy);
+    }
+
+    .picker-card-add:hover {
+        background: var(--color-hover-light);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .picker-card {
+        transition: none;
+    }
+
+    .picker-card:hover {
+        transform: none;
+    }
+}
+
+/* Carte vide pendant le chargement, qui pulse doucement (sauf si le
+   système demande moins d'animations). */
+.picker-skeleton {
+    cursor: default;
+    animation: picker-pulse 1.6s ease-in-out infinite;
+}
+
+.picker-skeleton .picker-avatar {
+    background: var(--color-skeleton);
+}
+
+.picker-skeleton-line {
+    width: 60%;
+    height: 0.875rem;
+    border-radius: 0.25rem;
+    background: var(--color-skeleton);
+}
+
+@keyframes picker-pulse {
+    50% {
+        opacity: 0.5;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .picker-skeleton {
+        animation: none;
+    }
+}
+
+/* Formulaire : « Créer » et « Annuler » côte à côte, puis l'un sous l'autre
+   sur téléphone. */
+.form-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+@media (max-width: 30rem) {
+    .form-actions {
+        grid-template-columns: 1fr;
+    }
+}

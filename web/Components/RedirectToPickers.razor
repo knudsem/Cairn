@@ -1,0 +1,13 @@
+@inject NavigationManager Nav
+
+@* Renvoi vers « Qui prépare ? », affiché par Routes.razor à la place d'une
+   page ouverte sans profil choisi. Il n'affiche rien lui-même. *@
+
+@code {
+    // L'écran « Qui prépare ? » reçoit l'adresse de la page demandée, pour y
+    // revenir une fois le profil choisi. replace: true remplace la page
+    // demandée dans l'historique du navigateur : le bouton « Retour » ne
+    // ramène pas vers une adresse qui renverrait aussitôt ici.
+    protected override void OnInitialized() =>
+        Nav.NavigateTo(Pages.Pickers.UrlFor(Nav), replace: true);
+}

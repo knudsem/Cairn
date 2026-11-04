@@ -1,5 +1,6 @@
 using Cairn.Web.Api;
 using Cairn.Web.Components;
+using Cairn.Web.State;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +20,10 @@ builder.Services.AddHttpClient<CairnApiClient>(client =>
     // Le délai par défaut est de 100 secondes : bien trop long sur une tablette.
     client.Timeout = TimeSpan.FromSeconds(5);
 });
+
+// Profil du préparateur choisi. « Scoped » : une instance par circuit Blazor,
+// donc par onglet ouvert (State/PickerState.cs).
+builder.Services.AddScoped<PickerState>();
 
 var app = builder.Build();
 
