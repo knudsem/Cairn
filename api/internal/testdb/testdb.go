@@ -141,10 +141,11 @@ func ClosePool(p *pgxpool.Pool) {
 	}
 }
 
-// Reset vide les trois tables et fait repartir les identifiants de plages
-// distinctes : produits 1, 2... ; commandes 101, 102... ; lignes 201, 202...
-// Si tous repartaient de 1, un code qui confond l'identifiant d'une commande
-// avec celui d'une ligne pourrait passer les tests par coïncidence.
+// Reset vide les quatre tables et fait repartir les identifiants de plages
+// distinctes : produits 1, 2... ; commandes 101, 102... ; lignes 201, 202... ;
+// profils 301, 302... Si tous repartaient de 1, un code qui confond
+// l'identifiant d'une commande avec celui d'une ligne pourrait passer les
+// tests par coïncidence.
 //
 // À la fin du test, elle vérifie aussi qu'aucune transaction n'est restée
 // ouverte, ce qui trahirait un Commit ou un Rollback oublié.
@@ -156,9 +157,10 @@ func Reset(t *testing.T, pool *pgxpool.Pool) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	for _, sql := range []string{
-		`TRUNCATE order_lines, orders, products RESTART IDENTITY`,
+		`TRUNCATE order_lines, orders, products, pickers RESTART IDENTITY`,
 		`ALTER TABLE orders ALTER COLUMN id RESTART WITH 101`,
 		`ALTER TABLE order_lines ALTER COLUMN id RESTART WITH 201`,
+		`ALTER TABLE pickers ALTER COLUMN id RESTART WITH 301`,
 	} {
 		if _, err := pool.Exec(ctx, sql); err != nil {
 			t.Fatalf("remise à zéro impossible (%s), une transaction est peut-être restée ouverte : %v", sql, err)

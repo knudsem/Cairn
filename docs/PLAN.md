@@ -94,7 +94,8 @@ Cairn/
       httpapi/
         routes.go              table des routes
         handlers.go            traduction HTTP ↔ store
-        pick.go                validation d'une ligne : contrôle de la requête, traduction des erreurs
+        body.go                lecture des corps JSON et contrôle des noms, communs aux routes (étape 7 bis)
+        pick.go                validation d'une ligne : traduction des erreurs
         pickers.go             routes des profils (étape 7 bis)
         respond.go             réponses JSON et format d'erreur unique
         main_test.go           tests HTTP (httptest) : outils communs
@@ -606,7 +607,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - dates en UTC, comme à l'étape 4.
 - **API (`httpapi/pickers.go`) :**
   - `GET /api/pickers` : 200 et la liste, `[]` si elle est vide ;
-  - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes ; sa réorganisation est couverte par les tests de l'étape 7. Réponse 201 et le profil créé ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
+  - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes, dans `httpapi/body.go` ; sa réorganisation est couverte par les tests de l'étape 7, dont les messages attendus n'ont pas changé. Réponse 201 et le profil créé ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
 - **Tests, sur la base de test :**
   - store : tri par nom (majuscules et accents), liste vide `[]`, création, doublon sans tenir compte des majuscules (« mathias » face à « Mathias », « ÉMILE » face à « Émile »), limite (le 20e profil passe, le 21e est refusé) ;
   - concurrence : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;

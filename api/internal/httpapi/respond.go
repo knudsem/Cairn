@@ -16,6 +16,8 @@ const (
 	codeLineNotFound      = "ligne_introuvable"
 	codeAlreadyPicked     = "deja_preparee"
 	codeInsufficientStock = "stock_insuffisant"
+	codePickerExists      = "profil_existant"
+	codeTooManyPickers    = "trop_de_profils"
 	codeInternal          = "erreur_interne"
 	codeDatabaseDown      = "base_indisponible"
 )

@@ -39,3 +39,20 @@ CREATE TABLE order_lines (
 -- PostgreSQL n'indexe pas automatiquement les clés étrangères. Cet index
 -- accélère la lecture des lignes d'une commande.
 CREATE INDEX order_lines_order_id_idx ON order_lines (order_id);
+
+-- Profils de préparateurs (docs/PLAN.md, étape 7 bis) : un nom choisi dans
+-- l'interface, sans mot de passe. Le nom d'une ligne préparée
+-- (order_lines.picked_by) est une copie, sans lien vers cette table :
+-- l'historique ne dépend pas du profil.
+CREATE TABLE pickers (
+    id          bigint      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    -- L'API contrôle le nom (docs/PLAN.md, étape 7) ; la base refuse quand
+    -- même un nom vide ou trop long, comme filet de sécurité.
+    name        text        NOT NULL CHECK (char_length(name) BETWEEN 1 AND 50),
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS » ne
+-- peuvent pas coexister. Un index sur l'expression lower(name) sert aussi à
+-- chercher un nom de cette façon.
+CREATE UNIQUE INDEX pickers_name_lower_key ON pickers (lower(name));

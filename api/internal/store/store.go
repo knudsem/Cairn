@@ -67,6 +67,33 @@ func (e *InsufficientStockError) Is(target error) bool {
 	return target == ErrInsufficientStock
 }
 
+// MaxPickers est le nombre maximal de profils de préparateurs (docs/PLAN.md,
+// étape 7 bis). Sans authentification, n'importe qui peut créer un profil :
+// la limite empêche de remplir la table.
+const MaxPickers = 20
+
+// Erreurs métier des profils de préparateurs.
+var (
+	ErrPickerExists   = errors.New("profil existant")
+	ErrTooManyPickers = errors.New("trop de profils")
+)
+
+// PickerExistsError précise ErrPickerExists avec le nom du profil existant,
+// tel qu'il est enregistré : « Mathias » pour une demande « mathias ».
+type PickerExistsError struct {
+	Name string
+}
+
+// Error renvoie le texte de l'erreur, pour les journaux.
+func (e *PickerExistsError) Error() string {
+	return "profil existant : " + e.Name
+}
+
+// Is fait reconnaître cette erreur par errors.Is(err, ErrPickerExists).
+func (e *PickerExistsError) Is(target error) bool {
+	return target == ErrPickerExists
+}
+
 // countOf écrit un nombre suivi de son mot, au pluriel à partir de 2, comme
 // le veut le français : « 0 disponible », « 1 disponible », « 3 disponibles ».
 func countOf(n int, word string) string {
@@ -136,4 +163,12 @@ type Product struct {
 	Name     string `json:"name"`
 	Location string `json:"location"`
 	StockQty int    `json:"stockQty"`
+}
+
+// Picker est un profil de préparateur : un nom choisi dans l'interface, sans
+// mot de passe (docs/PLAN.md, étape 7 bis).
+type Picker struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	CreatedAt time.Time `json:"createdAt"`
 }

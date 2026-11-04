@@ -53,11 +53,19 @@ INSERT INTO order_lines (order_id, product_id, quantity, picked_at, picked_by) V
     ((SELECT id FROM orders WHERE reference = 'CMD-0004'), (SELECT id FROM products WHERE sku = 'CAR-60'),  2, NULL, NULL),
     ((SELECT id FROM orders WHERE reference = 'CMD-0004'), (SELECT id FROM products WHERE sku = 'DEV-48'),  5, NULL, NULL),
 
-    -- CMD-0005 : 1 ligne sur 3 déjà préparée.
-    ((SELECT id FROM orders WHERE reference = 'CMD-0005'), (SELECT id FROM products WHERE sku = 'GAN-09'), 12, now() - interval '40 minutes', 'Karim'),
+    -- CMD-0005 : 1 ligne sur 3 déjà préparée, par Romain.
+    ((SELECT id FROM orders WHERE reference = 'CMD-0005'), (SELECT id FROM products WHERE sku = 'GAN-09'), 12, now() - interval '40 minutes', 'Romain'),
     ((SELECT id FROM orders WHERE reference = 'CMD-0005'), (SELECT id FROM products WHERE sku = 'FIL-50'),  3, NULL, NULL),
     ((SELECT id FROM orders WHERE reference = 'CMD-0005'), (SELECT id FROM products WHERE sku = 'CAL-80'),  2, NULL, NULL),
 
-    -- CMD-0006 : toutes les lignes préparées.
-    ((SELECT id FROM orders WHERE reference = 'CMD-0006'), (SELECT id FROM products WHERE sku = 'CAR-40'), 10, now() - interval '35 minutes', 'Léa'),
-    ((SELECT id FROM orders WHERE reference = 'CMD-0006'), (SELECT id FROM products WHERE sku = 'ADH-48'), 12, now() - interval '30 minutes', 'Léa');
+    -- CMD-0006 : toutes les lignes préparées, par Virginie.
+    ((SELECT id FROM orders WHERE reference = 'CMD-0006'), (SELECT id FROM products WHERE sku = 'CAR-40'), 10, now() - interval '35 minutes', 'Virginie'),
+    ((SELECT id FROM orders WHERE reference = 'CMD-0006'), (SELECT id FROM products WHERE sku = 'ADH-48'), 12, now() - interval '30 minutes', 'Virginie');
+
+-- Profils de préparateurs (docs/PLAN.md, étape 7 bis). L'ordre d'insertion
+-- diffère de l'ordre alphabétique (Mathias, Romain, Virginie) : un tri oublié
+-- dans l'API se verrait.
+INSERT INTO pickers (name) VALUES
+    ('Mathias'),
+    ('Virginie'),
+    ('Romain');

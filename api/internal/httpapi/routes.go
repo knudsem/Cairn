@@ -18,5 +18,7 @@ func NewHandler(s *store.Store) http.Handler {
 	mux.HandleFunc("GET /api/orders/{id}", h.getOrder)
 	mux.HandleFunc("POST /api/orders/{id}/lines/{lineId}/pick", h.pickLine)
 	mux.HandleFunc("GET /api/products", h.listProducts)
+	mux.HandleFunc("GET /api/pickers", h.listPickers)
+	mux.HandleFunc("POST /api/pickers", h.createPicker)
 	return mux
 }
