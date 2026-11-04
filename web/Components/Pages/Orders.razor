@@ -10,7 +10,12 @@
    à gauche et la commande à droite ; sur un écran étroit, un seul des deux
    volets s'affiche (Orders.razor.css). *@
 
-<PageTitle>Commandes - Cairn</PageTitle>
+@* Titre de l'onglet du navigateur : « Commandes » pour la liste ; une
+   commande ouverte affiche le nom du client (OrderDetail.razor). *@
+@if (OrderId is null)
+{
+    <PageTitle>Commandes - Cairn</PageTitle>
+}
 
 <div class="orders-layout @(OrderId is null ? "show-list" : "show-detail")">
     <section class="orders-list" aria-label="Liste des commandes">
@@ -82,15 +87,15 @@
                            ouverte à un lecteur d'écran. *@
                         <a class="order-card @(current ? "order-card-current" : null)" href="orders/@order.Id"
                            aria-current="@(current ? "page" : null)">
+                            @* Le client en titre, la référence en petit dessous,
+                               puis une information par ligne. *@
                             <span class="order-card-top">
-                                <span class="order-ref">@order.Reference</span>
+                                <span class="order-customer">@order.Customer</span>
                                 <StatusBadge Status="@order.Status" />
                             </span>
-                            <span class="order-customer">@order.Customer</span>
-                            <span class="order-card-bottom">
-                                <span class="order-progress-text">@Format.Progress(order.PickedCount, order.LineCount)</span>
-                                <span class="order-created">@Format.Created(order.CreatedAt)</span>
-                            </span>
+                            <span class="order-ref">@order.Reference</span>
+                            <span class="order-meta">@Format.Progress(order.PickedCount, order.LineCount)</span>
+                            <span class="order-meta">@Format.Created(order.CreatedAt)</span>
                             @* La barre répète le texte d'avancement : décorative. *@
                             <span class="progress progress-@Format.StatusClass(order.Status)" aria-hidden="true">
                                 <span style="width: @Format.Percent(order.PickedCount, order.LineCount)"></span>
@@ -105,7 +110,7 @@
     <section class="orders-detail">
         @if (OrderId is null)
         {
-            <div class="orders-placeholder">
+            <div class="orders-placeholder panel">
                 <h2>Choisissez une commande</h2>
                 <p>Sélectionnez une commande dans la liste pour commencer.</p>
             </div>
@@ -116,7 +121,7 @@
                chaque nouvel état (UpdateSummary), et reçoit la prochaine
                commande à préparer pour « Commande suivante ». *@
             <OrderDetail OrderId="@OrderId.Value"
-                         Reference="@(orders?.FirstOrDefault(o => o.Id == OrderId)?.Reference)"
+                         Customer="@(orders?.FirstOrDefault(o => o.Id == OrderId)?.Customer)"
                          NextOrderId="@NextOrderId"
                          OnOrderChanged="UpdateSummary" />
         }

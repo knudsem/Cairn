@@ -88,22 +88,25 @@
     font-weight: 400;
 }
 
-/* Survol à la souris : la carte se soulève, sa bordure et sa pastille
-   prennent l'ocre (bleu nuit sur ocre : 6,3:1). */
+/* Survol à la souris : la carte se soulève, sa bordure passe au bleu nuit
+   et sa pastille s'éclaircit un peu. */
 @media (hover: hover) {
     .picker-card:hover {
-        border-color: var(--color-ochre);
+        border-color: var(--color-navy);
         box-shadow: var(--shadow-hover);
         transform: translateY(-2px);
     }
 
     .picker-card:hover .picker-avatar {
-        background: var(--color-ochre);
-        color: var(--color-navy);
+        background: var(--color-navy-hover);
     }
 
     .picker-card-add:hover {
         background: var(--color-hover-light);
+    }
+
+    .picker-card-add:hover .picker-avatar {
+        background: var(--color-todo-light);
     }
 }
 

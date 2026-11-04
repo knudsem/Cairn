@@ -32,6 +32,13 @@
     --color-skeleton: #ECE6DB;
     --color-hover-light: #F8F4EC;
     --color-navy-hover: #2C3E5C;
+    /* Fonds clairs teintés des pastilles de statut, texte foncé dessus :
+       à préparer (neutre, 11,8:1), en cours (ocre clair, 7,8:1), prête
+       (vert clair, 5,6:1). */
+    --color-todo-light: #ECE8E1;
+    --color-progress-light: #F6E7D3;
+    --color-progress-text: #6B3A00;
+    --color-ok-light: #E3F1E7;
 
     /* Focus clavier : contour bleu nuit, 14:1 sur blanc, 12:1 sur crème. */
     --focus-outline: 3px solid var(--color-navy);
@@ -98,7 +105,9 @@ body {
 }
 
 /* Barre du haut : le logo à gauche, le profil choisi et « Changer » à
-   droite. Hauteur fixe, avec ou sans profil : la page ne saute pas. */
+   droite. Hauteur fixe, avec ou sans profil : la page ne saute pas. Une
+   bordure neutre dessous : l'ocre est réservé à un seul accent (la
+   prochaine ligne à préparer). */
 .app-header {
     display: flex;
     align-items: center;
@@ -107,7 +116,7 @@ body {
     min-height: var(--header-height);
     padding: 0.375rem 2rem;
     background: var(--color-white);
-    border-bottom: 3px solid var(--color-ochre);
+    border-bottom: 1px solid var(--color-border);
 }
 
 .app-logo {
@@ -153,7 +162,7 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .app-picker .button {
@@ -208,7 +217,7 @@ h1:focus {
     background: var(--color-navy);
     color: var(--color-cream);
     font: inherit;
-    font-weight: 600;
+    font-weight: 500;
     cursor: pointer;
 }
 
@@ -260,7 +269,7 @@ h1:focus {
 .field-label {
     display: block;
     margin-bottom: 0.5rem;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .field-input {
@@ -293,7 +302,7 @@ h1:focus {
     gap: 0.625rem;
     margin: 0.75rem 0 0;
     color: var(--color-error);
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .field-error-icon {
@@ -326,60 +335,34 @@ h1:focus {
     line-height: 1.25;
 }
 
-/* État affiché : une couleur, et toujours un texte. */
-.status {
-    display: inline-block;
-    margin: 0 0 1.5rem;
-    padding: 0.5rem 1rem;
-    border-radius: var(--radius);
-    color: var(--color-white);
-    font-weight: 600;
-}
-
-.status-ok {
-    background: var(--color-ok);
-}
-
-.status-warning {
-    background: var(--color-warning);
-}
-
-.status-error {
-    background: var(--color-error);
-}
-
-.status-pending {
-    background: var(--color-pending);
-}
-
-/* Pastille de statut (StatusBadge.razor) : texte blanc ou crème sur la
-   couleur d'état, de 6,6:1 à 12:1. */
+/* Pastille de statut (StatusBadge.razor) : fond clair teinté, texte foncé,
+   une teinte par statut, et toujours le libellé écrit. */
 .badge {
     display: inline-block;
     flex: none;
     padding: 0.125rem 0.625rem;
     border-radius: 999px;
     font-size: var(--font-size-small);
-    font-weight: 700;
+    font-weight: 500;
     white-space: nowrap;
 }
 
 .badge-todo {
-    background: var(--color-navy);
-    color: var(--color-cream);
+    background: var(--color-todo-light);
+    color: var(--color-navy);
 }
 
 .badge-progress {
-    background: var(--color-warning);
-    color: var(--color-white);
+    background: var(--color-progress-light);
+    color: var(--color-progress-text);
 }
 
 .badge-ready {
-    background: var(--color-ok);
-    color: var(--color-white);
+    background: var(--color-ok-light);
+    color: var(--color-ok);
 }
 
-/* Barre d'avancement, de la couleur du statut. */
+/* Barre d'avancement : bleu nuit, verte une fois la commande prête. */
 .progress {
     display: block;
     height: 0.375rem;
@@ -395,10 +378,6 @@ h1:focus {
     background: var(--color-navy);
 }
 
-.progress-progress > span {
-    background: var(--color-warning);
-}
-
 .progress-ready > span {
     background: var(--color-ok);
 }
@@ -407,7 +386,6 @@ h1:focus {
 .loading {
     margin: 0 0 1rem;
     color: var(--color-muted);
-    font-weight: 600;
 }
 
 /* Bandeau d'erreur de Blazor (App.razor), masqué tant que tout va bien. */

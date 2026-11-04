@@ -1,164 +1,150 @@
+@using System.Globalization
 @using Microsoft.JSInterop
 @inject CairnApiClient Api
 @inject PickerState PickerState
 
-@* Préparation d'une commande (docs/PLAN.md, étape 9) : la prochaine ligne mise
-   en avant, les autres lignes à préparer, puis les lignes déjà préparées.
+@* Préparation d'une commande (docs/PLAN.md, étapes 9 et 10 bis) : la
+   prochaine ligne mise en avant, les autres lignes à préparer, puis les
+   lignes déjà préparées.
    Affiché par Orders.razor, à droite de la liste sur un écran large, à sa
    place sur un écran étroit. *@
 
-<a class="button button-secondary back-link" href="./">← Commandes</a>
+<PageTitle>@(order?.Customer ?? Customer ?? "Commande") - Cairn</PageTitle>
 
-@{
-    var ready = order?.Status == OrderStatus.Ready;
-}
+<div class="detail">
+    <a class="button button-secondary back-link" href="./">← Commandes</a>
 
-@* Messages après une validation. role="status" : un lecteur d'écran les
-   annonce ; tabindex="-1" permet d'y placer le focus. *@
-@if (order is not null && ready)
-{
-    <div class="ready-banner" role="status" tabindex="-1" @ref="banner">✓ Commande prête</div>
-    <div class="ready-actions">
-        @if (NextOrderId is { } next)
-        {
-            <a class="button" href="orders/@next">Commande suivante</a>
-        }
-        <a class="button button-secondary" href="./">Retour aux commandes</a>
-    </div>
-}
-else if (success is not null)
-{
-    <p class="banner-success" role="status" tabindex="-1" @ref="banner">✓ @success</p>
-}
-@if (info is not null)
-{
-    <p class="banner-info" role="status" tabindex="-1" @ref="infoBanner">@info</p>
-}
-
-@* En-tête. Le titre (h1) est écrit une seule fois, hors des conditions : il
-   reste le même élément pendant le chargement puis après, et garde donc le
-   focus que OnAfterRenderAsync y place à l'ouverture d'une commande. *@
-<div class="order-head">
-    <div class="order-head-title">
-        <h1 class="order-title" tabindex="-1" @ref="title">@(order?.Reference ?? Reference ?? "Commande")</h1>
-        @if (order is not null)
-        {
-            <StatusBadge Status="@order.Status" />
-        }
-    </div>
-    @if (order is not null)
-    {
-        <div class="order-head-sub">
-            <span class="order-customer">@order.Customer</span>
-            <span class="order-progress-text">@Format.Progress(order.PickedCount, order.Lines.Count)</span>
-        </div>
-        <span class="progress progress-@Format.StatusClass(order.Status)" aria-hidden="true">
-            <span style="width: @Format.Percent(order.PickedCount, order.Lines.Count)"></span>
-        </span>
+    @{
+        var ready = order?.Status == OrderStatus.Ready;
     }
-</div>
 
-@if (order is null)
-{
-    @if (loadError is not null)
-    {
-        <div class="alert-error" role="alert">
-            <h2 class="alert-title">Impossible de charger la commande</h2>
-            <p>@loadError.UserMessage</p>
-            @if (loadError.Code != "commande_introuvable")
+    @* En-tête : le nom du client en titre, la référence en petit dessous. Le
+       titre (h1) est écrit une seule fois, hors des conditions : il reste le
+       même élément pendant le chargement puis après, et garde donc le focus
+       que OnAfterRenderAsync y place à l'ouverture d'une commande. *@
+    <div class="order-head">
+        <div class="order-head-title">
+            <h1 class="order-title" tabindex="-1" @ref="title">@(order?.Customer ?? Customer ?? "Commande")</h1>
+            @if (order is not null)
             {
-                <p>Si le problème continue, prévenez votre responsable.</p>
-                <button type="button" class="button button-wide" @onclick="RetryLoadAsync">Réessayer</button>
+                <StatusBadge Status="@order.Status" />
             }
         </div>
+        @if (order is not null)
+        {
+            <p class="order-ref">@order.Reference</p>
+            <p class="order-progress-text">@Format.Progress(order.PickedCount, order.Lines.Count)</p>
+            <span class="progress progress-@Format.StatusClass(order.Status)" aria-hidden="true">
+                <span style="width: @Format.Percent(order.PickedCount, order.Lines.Count)"></span>
+            </span>
+        }
+    </div>
+
+    @if (order is null)
+    {
+        @if (loadError is not null)
+        {
+            <div class="alert-error" role="alert">
+                <h2 class="alert-title">Impossible de charger la commande</h2>
+                <p>@loadError.UserMessage</p>
+                @if (loadError.Code != "commande_introuvable")
+                {
+                    <p>Si le problème continue, prévenez votre responsable.</p>
+                    <button type="button" class="button button-wide" @onclick="RetryLoadAsync">Réessayer</button>
+                }
+            </div>
+        }
+        else
+        {
+            <p class="loading" role="status">Chargement de la commande...</p>
+            <div class="line-card line-next line-skeleton" aria-hidden="true">
+                <span class="skeleton-block"></span>
+                <span class="skeleton-block skeleton-wide"></span>
+            </div>
+        }
     }
     else
     {
-        <p class="loading" role="status">Chargement de la commande...</p>
-        <div class="line-card line-next line-skeleton" aria-hidden="true">
-            <span class="skeleton-block"></span>
-            <span class="skeleton-block skeleton-wide"></span>
-        </div>
-    }
-}
-else
-{
-    var toPick = order.Lines.Where(l => !l.IsPicked).ToList();
-    var picked = order.Lines.Where(l => l.IsPicked).ToList();
+        var toPick = order.Lines.Where(l => !l.IsPicked).ToList();
+        var picked = order.Lines.Where(l => l.IsPicked).ToList();
 
-    @for (var i = 0; i < toPick.Count; i++)
-    {
-        var line = toPick[i];
-        var isNext = i == 0;
-        var hasError = errorLineId == line.Id;
-        <article class="line-card @(isNext ? "line-next" : null)" aria-label="@($"Ligne {line.Location}, {line.Quantity} {line.ProductName}")">
-            @if (isNext)
-            {
-                <span class="next-pill">Prochaine ligne</span>
-            }
-            <div class="line-main">
-                <div class="line-figure">
-                    <span class="line-label">Emplacement</span>
-                    <span class="line-location">@line.Location</span>
-                </div>
-                <div class="line-figure line-figure-qty">
-                    <span class="line-label">Quantité</span>
-                    <span class="line-qty">@line.Quantity</span>
-                </div>
-            </div>
-            <div class="line-product">
-                <span class="line-product-name">@line.ProductName</span>
-                <span class="line-meta">@line.Sku · En stock : @line.StockQty</span>
-            </div>
-            @if (hasError)
-            {
-                <div class="line-error" role="alert">
-                    <span class="field-error-icon" aria-hidden="true">!</span>
-                    <span>
-                        <strong>@errorTitle</strong>
-                        <span class="line-error-detail">@errorDetail</span>
-                    </span>
-                </div>
-            }
-            <button type="button" class="button @(isNext ? "button-wide" : "button-secondary line-button")"
-                    disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
-                @(pickingLineId == line.Id ? "Validation..." : hasError ? "Réessayer" : "Préparé")
-            </button>
-        </article>
-    }
-
-    @if (picked.Count > 0)
-    {
-        <h2 class="done-title">Déjà préparées (@picked.Count)</h2>
-        <div class="done-grid">
-            @foreach (var line in picked)
-            {
-                <article class="done-card">
-                    <div class="done-top">
-                        <span class="done-location">@line.Location</span>
-                        <span class="done-qty">×@line.Quantity</span>
+        @* Deux colonnes sur un grand écran (à partir de 1280 px) : à gauche,
+           ce qu'il faut faire maintenant ; à droite, la suite et ce qui est
+           fait. Une seule colonne en dessous. *@
+        <div class="detail-columns">
+            <div class="detail-main">
+                @* Messages après une validation. role="status" : un lecteur
+                   d'écran les annonce ; tabindex="-1" permet d'y placer le
+                   focus. *@
+                @if (ready)
+                {
+                    <div class="ready-banner" role="status" tabindex="-1" @ref="banner">✓ Commande prête</div>
+                    <div class="ready-actions">
+                        @if (NextOrderId is { } next)
+                        {
+                            <a class="button" href="orders/@next">Commande suivante</a>
+                        }
+                        <a class="button button-secondary" href="./">Retour aux commandes</a>
                     </div>
-                    <span class="done-product">@line.ProductName</span>
-                    @* <bdi> isole le nom : un nom écrit de droite à gauche ne
-                       mélange pas l'ordre des mots de la phrase. *@
-                    <span class="done-by">
-                        <span aria-hidden="true">✓</span>
-                        Préparé par <bdi>@line.PickedBy</bdi>@(line.PickedAt is { } at ? $" à {Format.Time(at)}" : "")
-                    </span>
-                </article>
-            }
+                }
+                else if (success is not null)
+                {
+                    <p class="banner-success" role="status" tabindex="-1" @ref="banner">✓ @success</p>
+                }
+                @if (info is not null)
+                {
+                    <p class="banner-info" role="status" tabindex="-1" @ref="infoBanner">@info</p>
+                }
+
+                @if (toPick.Count > 0)
+                {
+                    @LineCard(toPick[0], true)
+                }
+            </div>
+
+            <div class="detail-side">
+                @if (toPick.Count > 1)
+                {
+                    <h2 class="section-title">À préparer ensuite (@(toPick.Count - 1))</h2>
+                    @foreach (var line in toPick.Skip(1))
+                    {
+                        @LineCard(line, false)
+                    }
+                }
+
+                @if (picked.Count > 0)
+                {
+                    <h2 class="section-title">Déjà préparées (@picked.Count)</h2>
+                    <div class="done-grid">
+                        @foreach (var line in picked)
+                        {
+                            <article class="done-card">
+                                <span class="done-location">@line.Location</span>
+                                <span class="done-product">@line.ProductName</span>
+                                <span class="done-meta">Quantité : @line.Quantity</span>
+                                @* <bdi> isole le nom : un nom écrit de droite à
+                                   gauche ne mélange pas l'ordre des mots. *@
+                                <span class="done-by">
+                                    <span aria-hidden="true">✓</span>
+                                    Préparé par <bdi>@line.PickedBy</bdi>@(line.PickedAt is { } at ? $" à {Format.Time(at)}" : "")
+                                </span>
+                            </article>
+                        }
+                    </div>
+                }
+            </div>
         </div>
     }
-}
+</div>
 
 @code {
     /// <summary>Commande à afficher.</summary>
     [Parameter, EditorRequired]
     public long OrderId { get; set; }
 
-    /// <summary>Référence connue par la liste, affichée pendant le chargement.</summary>
+    /// <summary>Nom du client connu par la liste, affiché pendant le chargement.</summary>
     [Parameter]
-    public string? Reference { get; set; }
+    public string? Customer { get; set; }
 
     /// <summary>
     /// Prochaine commande à préparer (bouton « Commande suivante »), ou null
@@ -382,6 +368,72 @@ else
         success = message;
         ignorePicksUntil = DateTime.UtcNow + DoubleTapDelay;
         focusBanner = true;
+    }
+
+    // Carte d'une ligne à préparer : la prochaine (isNext), en grand, ou une
+    // des suivantes, plus compacte. Une information par ligne, avec son
+    // étiquette. C'est un fragment de rendu : un morceau de page écrit en
+    // Razor dans le code, comme une petite fonction qui renvoie du JSX en React.
+    private RenderFragment LineCard(OrderLine line, bool isNext) =>
+        @<article class="line-card @(isNext ? "line-next" : null)"
+                  aria-label="@($"{line.ProductName}, emplacement {line.Location}, {line.Quantity} à prendre")">
+            @if (isNext)
+            {
+                @* h2 : le plan des titres reste h1 (client), h2, h3 (produit). *@
+                <h2 class="line-kicker">Prochaine ligne</h2>
+            }
+            <div class="line-main">
+                <div class="line-figure">
+                    <span class="line-label">Emplacement</span>
+                    <span class="line-location">@line.Location</span>
+                    @if (LocationWords(line.Location) is { } words)
+                    {
+                        <span class="line-location-words">@words</span>
+                    }
+                </div>
+                <div class="line-figure line-figure-qty">
+                    <span class="line-label">À prendre</span>
+                    <span class="line-qty">@line.Quantity</span>
+                </div>
+            </div>
+            <div class="line-product">
+                <h3 class="line-product-name">@line.ProductName</h3>
+                <span class="line-meta">Réf. @line.Sku</span>
+                <span class="line-meta">En stock : @line.StockQty</span>
+            </div>
+            @if (errorLineId == line.Id)
+            {
+                <div class="line-error" role="alert">
+                    <span class="field-error-icon" aria-hidden="true">!</span>
+                    <span>
+                        <strong>@errorTitle</strong>
+                        <span class="line-error-detail">@errorDetail</span>
+                    </span>
+                </div>
+            }
+            <button type="button" class="button @(isNext ? "button-wide" : "button-secondary line-button")"
+                    disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
+                @(pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "Préparé")
+            </button>
+        </article>;
+
+    /// <summary>
+    /// Emplacement en mots : « B-07-2 » donne « Allée B, rack 7, niveau 2 »,
+    /// sans le zéro devant le 7. Un emplacement d'un autre format (pas lettre,
+    /// nombre, nombre) donne null : seul le code s'affiche alors.
+    /// NumberStyles.None n'accepte que des chiffres : ni signe ni espace.
+    /// </summary>
+    private static string? LocationWords(string location)
+    {
+        var parts = location.Split('-');
+        if (parts.Length == 3
+            && parts[0].Length == 1 && char.IsAsciiLetter(parts[0][0])
+            && int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var rack)
+            && int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var level))
+        {
+            return $"Allée {char.ToUpperInvariant(parts[0][0])}, rack {rack}, niveau {level}";
+        }
+        return null;
     }
 
     private void ClearLineError()
