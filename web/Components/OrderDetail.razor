@@ -3,6 +3,7 @@
 @inject CairnApiClient Api
 @inject PickerState PickerState
 @inject ApiWakeUp ApiWakeUp
+@inject NavigationManager Nav
 
 @* Préparation d'une commande (docs/PLAN.md, étapes 9 et 10 bis) : la
    prochaine ligne mise en avant, les autres lignes à préparer, puis les
@@ -244,6 +245,12 @@
     private async Task LoadAsync()
     {
         var id = OrderId;
+        // Profil supprimé depuis un autre onglet (étape 13) : retour à « Qui
+        // prépare ? », et la commande ne s'ouvre pas.
+        if (await Pages.Pickers.LeaveIfPickerDeletedAsync(Api, PickerState, Nav, ShowStartingAsync))
+        {
+            return;
+        }
         var result = await Api.GetOrderAsync(id, ShowStartingAsync);
         // Pendant l'appel, le préparateur a pu ouvrir une autre commande :
         // la réponse, devenue inutile, est ignorée.
@@ -301,6 +308,15 @@
         // Les bandeaux restent affichés pendant l'appel : les effacer tout de
         // suite ferait sauter la page.
         ClearLineError();
+
+        // Profil supprimé depuis un autre onglet (étape 13) : la ligne n'est
+        // pas validée à son nom, et « Qui prépare ? » s'ouvre. L'API, elle,
+        // ne connaît que le nom envoyé : c'est l'interface qui vérifie.
+        if (await Pages.Pickers.LeaveIfPickerDeletedAsync(Api, PickerState, Nav, ShowStartingAsync))
+        {
+            return;
+        }
+        starting = false;
 
         var result = await Api.PickLineAsync(id, line.Id, picker.Name);
         if (id != OrderId)

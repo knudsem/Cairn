@@ -102,3 +102,25 @@ func (s *Store) CreatePicker(ctx context.Context, name string) (Picker, error) {
 	p.CreatedAt = p.CreatedAt.UTC()
 	return p, nil
 }
+
+// DeletePicker supprime le profil id (docs/PLAN.md, étape 13). Les lignes
+// qu'il a préparées gardent son nom : order_lines.picked_by est une copie du
+// nom, sans lien vers la table pickers (db/init/001_schema.sql). Le nom est
+// ensuite libre : l'index unique ne porte que sur les profils qui existent.
+// Erreur métier possible : ErrPickerNotFound, si aucun profil ne porte cet
+// identifiant (par exemple déjà supprimé depuis un autre écran).
+//
+// Une seule requête, sans transaction : si une création de profil est en
+// cours, le DELETE attend la fin de son verrou (LOCK TABLE de
+// CreatePicker), et le comptage des 20 profils reste juste.
+func (s *Store) DeletePicker(ctx context.Context, id int64) error {
+	tag, err := s.pool.Exec(ctx, `DELETE FROM pickers WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("suppression du profil : %w", err)
+	}
+	// RowsAffected : le nombre de lignes supprimées, 0 ou 1 (id est la clé).
+	if tag.RowsAffected() == 0 {
+		return ErrPickerNotFound
+	}
+	return nil
+}

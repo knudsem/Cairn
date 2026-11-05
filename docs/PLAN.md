@@ -338,6 +338,7 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
 | `GET` | `/api/products` | 200 : produits et stock | |
 | `GET` | `/api/pickers` | 200 : profils triés par nom | |
 | `POST` | `/api/pickers` | 201 : profil créé | 400, 409 |
+| `DELETE` | `/api/pickers/{id}` | 204 : profil supprimé, sans corps (étape 13) | 400 si l'identifiant n'est pas un nombre, 404 |
 
 ### 4.2 Format des réponses
 
@@ -366,6 +367,9 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
 // POST /api/pickers, corps : { "name": "Test" }
 // Réponse 201 : le profil créé, au même format qu'un élément de la liste.
 
+// DELETE /api/pickers/4 : réponse 204, sans corps. Les lignes préparées par
+// ce profil gardent son nom.
+
 // Toute erreur :
 { "error": "stock_insuffisant", "message": "Stock insuffisant : 3 disponibles, 4 demandés." }
 ```
@@ -379,6 +383,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 | 400 | `requete_invalide` | identifiant non numérique, corps refusé (type, taille, JSON invalide, champ inconnu), nom de préparateur ou de profil invalide, statut de filtre inconnu |
 | 404 | `commande_introuvable` | commande inexistante |
 | 404 | `ligne_introuvable` | ligne inexistante, ou n'appartenant pas à la commande |
+| 404 | `profil_introuvable` | profil inexistant, par exemple déjà supprimé depuis un autre écran (étape 13) |
 | 409 | `deja_preparee` | ligne déjà validée |
 | 409 | `stock_insuffisant` | stock inférieur à la quantité demandée |
 | 409 | `profil_existant` | un profil porte déjà ce nom, sans tenir compte des majuscules ; le message donne le nom existant |
@@ -395,7 +400,7 @@ La liste (`GET /api/orders`) inclut `lineCount` et `pickedCount` pour afficher l
 - **Erreurs du routeur en texte brut** : une route inconnue (404) ou une méthode non prévue (405) reçoit une réponse `text/plain`, hors du format JSON unique. Le client ne lit donc le JSON d'une erreur que si la réponse est de type `application/json` ; sinon il affiche un message générique. La même règle couvre la page d'attente de Render (étape 11).
 - **Paramètres validés** : une chaîne de requête mal formée (`?status=%zz`) ou un paramètre répété donne 400, au lieu d'être ignoré.
 - **Chemins non canoniques** : un chemin qui contient `//` ou `..` reçoit du routeur une redirection 307 vers le chemin nettoyé, sans corps JSON. La règle des erreurs du routeur s'applique aussi : JSON lu seulement si la réponse est de type `application/json`.
-- **201 sans en-tête `Location`** : la création d'un profil renvoie 201 et le profil créé, sans l'en-tête `Location` qui donne d'habitude l'adresse de la nouvelle ressource. Il n'existe pas d'adresse pour un profil seul (pas de route `GET /api/pickers/{id}`), et le corps décrit déjà le profil.
+- **201 sans en-tête `Location`** : la création d'un profil renvoie 201 et le profil créé, sans l'en-tête `Location` qui donne d'habitude l'adresse de la nouvelle ressource. Il n'existe pas de route `GET /api/pickers/{id}` (l'adresse d'un profil ne sert qu'à sa suppression, étape 13), et le corps décrit déjà le profil.
 
 ---
 
@@ -850,7 +855,18 @@ Contenu défini dans SCOPE.md, section 9, avec le lien public de l'étape 11 s'i
 
 ### Étape 13 : évolutions optionnelles
 
-Seulement s'il reste du temps. Dans l'ordre :
+**Faite le 5 novembre : supprimer un profil**, pour les testeurs de RLM, qui créent des profils.
+
+- Base : aucune migration. `order_lines.picked_by` est une copie du nom, sans clé étrangère vers `pickers` (étape 7 bis) : supprimer un profil ne touche pas aux lignes, qui affichent toujours « Préparé par » et son nom. `db/init` et `db/reset.sql` ne changent pas.
+- API : `DELETE /api/pickers/{id}` (`store.DeletePicker`, une seule requête), 204 sans corps, 404 `profil_introuvable`, 400 si l'identifiant est invalide. Le nom redevient libre, et la place compte de nouveau sous la limite de 20. Tous les profils peuvent être supprimés, y compris ceux de la démonstration : la remise à zéro les rétablit. Sans authentification, n'importe qui peut supprimer un profil, comme il peut en créer un (hors périmètre, SCOPE.md).
+- Interface : sous la grille de « Qui prépare ? », un bouton secondaire « Gérer les profils » ouvre un mode gestion. Il devient « Terminé » (bouton principal, `aria-pressed`), le sous-titre devient « Touchez un profil pour le supprimer. », « Ajouter un profil » est masqué, et chaque carte porte un badge rond rouge à la croix. Toucher une carte ouvre alors la confirmation dans le panneau, comme « Nouveau profil » : « Supprimer le profil Test ? Les lignes qu'il a déjà préparées gardent son nom. », avec « Supprimer » et « Annuler ». En mode gestion, une carte ne choisit jamais le profil, et son libellé accessible devient « Supprimer le profil Test ». « Terminé » ou la touche Échap quittent le mode gestion. Sans aucun profil, le bouton disparaît.
+- Double appui avec des gants : un appui dans la demi-seconde qui suit l'ouverture de la confirmation est ignoré (il ne saute pas la confirmation), de même qu'un appui sur une carte ou sur le bouton juste après l'entrée dans le mode gestion ou la sortie.
+- Messages en haut du panneau, sans bordure et sans focus, annoncés par `role="status"` : « ✓ Profil « Test » supprimé. » dans le bandeau de succès commun (`app.css`, le même qu'après la validation d'une ligne), effacé au bout de 5 s ou dès l'action suivante ; le renvoi depuis un autre onglet dans un bandeau neutre, effacé dès l'action suivante. Après une suppression, le focus va sur « Terminé ».
+- Profil supprimé depuis un autre onglet : avant chaque action qui appelle l'API (chargement de la liste, « Actualiser », ouverture d'une commande, « Préparé »), l'interface vérifie que le profil de l'onglet existe encore (`GET /api/pickers`, 20 profils au plus). Sinon, elle l'oublie et ouvre « Qui prépare ? » avec un message, puis ramène à la page en cours une fois un profil choisi.
+- Limite connue : la validation n'envoie que le nom (étape 7), donc l'API ne vérifie pas le profil. Si la suppression tombe entre la vérification et la validation, à quelques millisecondes près, la ligne est enregistrée au nom du profil supprimé, ce qui reste exact. Faire vérifier le profil par l'API changerait la route de validation et ses tests : écarté.
+- Tests Go : suppression, profil inconnu ou déjà supprimé, deux suppressions simultanées, identifiants invalides, historique intact (store et HTTP), même nom recréé, place libérée sous la limite, panne de base.
+
+**Les autres**, seulement s'il reste du temps, dans l'ordre :
 
 1. historique des mouvements de stock, avec un test ;
 2. alerte de stock bas ;

@@ -86,6 +86,7 @@ const MaxPickers = 20
 var (
 	ErrPickerExists   = errors.New("profil existant")
 	ErrTooManyPickers = errors.New("trop de profils")
+	ErrPickerNotFound = errors.New("profil introuvable")
 )
 
 // PickerExistsError précise ErrPickerExists avec le nom du profil existant,

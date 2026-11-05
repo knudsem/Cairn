@@ -3,6 +3,8 @@
 @using Microsoft.JSInterop
 @inject CairnApiClient Api
 @inject ApiWakeUp ApiWakeUp
+@inject PickerState PickerState
+@inject NavigationManager Nav
 
 @* Écran des commandes (docs/PLAN.md, étapes 8 et 9). Deux adresses pour un
    même composant : / (la liste) et /orders/{id} (la liste et une commande
@@ -230,6 +232,13 @@
     {
         loading = true;
         loadError = null;
+        // Profil supprimé depuis un autre onglet (étape 13) : retour à « Qui
+        // prépare ? », et la page s'arrête là.
+        if (await Pickers.LeaveIfPickerDeletedAsync(Api, PickerState, Nav, ShowStartingAsync))
+        {
+            loading = false;
+            return;
+        }
         var result = await Api.GetOrdersAsync(ShowStartingAsync);
         starting = false;
         if (result.IsSuccess)

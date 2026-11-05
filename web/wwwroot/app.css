@@ -335,6 +335,17 @@ h1:focus {
     line-height: 1.25;
 }
 
+/* Bandeau de succès, une coche puis le texte : après la validation d'une
+   ligne (OrderDetail.razor) et la suppression d'un profil (Pickers.razor).
+   Vert sur vert clair, sans bordure : 5,6:1. */
+.banner-success {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    background: var(--color-ok-light);
+    color: var(--color-ok);
+}
+
 /* Pastille de statut (StatusBadge.razor) : fond clair teinté, texte foncé,
    une teinte par statut, et toujours le libellé écrit. */
 .badge {

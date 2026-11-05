@@ -2,7 +2,8 @@ package store_test
 
 // Tests des profils de préparateurs (docs/PLAN.md, étape 7 bis) : tri par
 // nom, création, unicité sans tenir compte des majuscules, limite de 20
-// profils, et créations simultanées.
+// profils, et créations simultanées. Puis la suppression (étape 13) : profil
+// inconnu, historique des lignes préparées, nom et place libérés.
 
 import (
 	"errors"
@@ -284,6 +285,139 @@ func TestCreatePickerConcurrentSameName(t *testing.T) {
 		}
 		if got := pickerCount(t); got != 1 {
 			t.Fatalf("tour %d : %d profils, attendu 1", round, got)
+		}
+	}
+}
+
+// Étape 13 : le profil supprimé disparaît de la liste, les autres restent.
+// Un identifiant inconnu, ou un profil déjà supprimé, donne
+// ErrPickerNotFound.
+func TestDeletePicker(t *testing.T) {
+	resetDB(t)
+	mathias, err := st.CreatePicker(t.Context(), "Mathias")
+	if err != nil {
+		t.Fatalf("création de Mathias : %v", err)
+	}
+	test, err := st.CreatePicker(t.Context(), "Test")
+	if err != nil {
+		t.Fatalf("création de Test : %v", err)
+	}
+
+	if err := st.DeletePicker(t.Context(), test.ID); err != nil {
+		t.Fatalf("DeletePicker(%d) : %v", test.ID, err)
+	}
+	pickers, err := st.ListPickers(t.Context())
+	if err != nil {
+		t.Fatalf("ListPickers : %v", err)
+	}
+	if len(pickers) != 1 || pickers[0].ID != mathias.ID {
+		t.Errorf("profils restants %+v, attendu seulement Mathias (%d)", pickers, mathias.ID)
+	}
+
+	for _, id := range []int64{test.ID, 999} {
+		if err := st.DeletePicker(t.Context(), id); !errors.Is(err, store.ErrPickerNotFound) {
+			t.Errorf("DeletePicker(%d) : erreur %v, attendu ErrPickerNotFound", id, err)
+		}
+	}
+	if got := pickerCount(t); got != 1 {
+		t.Errorf("%d profils, attendu 1", got)
+	}
+}
+
+// L'historique reste juste : une ligne préparée par un profil supprimé garde
+// son nom et son heure, et le stock ne bouge pas. picked_by est une copie du
+// nom, sans lien vers la table pickers.
+func TestDeletePickerKeepsPickedLines(t *testing.T) {
+	resetDB(t)
+	product := insertProduct(t, "P-1", "A-01-1", 10)
+	order := insertOrder(t, "CMD-1")
+	line := insertLine(t, order, product, 4)
+	test, err := st.CreatePicker(t.Context(), "Test")
+	if err != nil {
+		t.Fatalf("création de Test : %v", err)
+	}
+	if err := st.PickLine(t.Context(), order, line, test.Name); err != nil {
+		t.Fatalf("PickLine : %v", err)
+	}
+	before, err := st.GetOrder(t.Context(), order)
+	if err != nil {
+		t.Fatalf("GetOrder avant la suppression : %v", err)
+	}
+
+	if err := st.DeletePicker(t.Context(), test.ID); err != nil {
+		t.Fatalf("DeletePicker : %v", err)
+	}
+
+	after, err := st.GetOrder(t.Context(), order)
+	if err != nil {
+		t.Fatalf("GetOrder après la suppression : %v", err)
+	}
+	b, a := before.Lines[0], after.Lines[0]
+	if a.PickedBy == nil || *a.PickedBy != "Test" || a.PickedAt == nil || !a.PickedAt.Equal(*b.PickedAt) {
+		t.Errorf("ligne après la suppression : préparée par %v à %v, attendu Test à %v", a.PickedBy, a.PickedAt, b.PickedAt)
+	}
+	if after.Status != "prete" {
+		t.Errorf("statut %q, attendu prete", after.Status)
+	}
+	if got := stockOf(t, product); got != 6 {
+		t.Errorf("stock = %d, attendu 6 (10 - 4, inchangé par la suppression)", got)
+	}
+}
+
+// Le nom d'un profil supprimé est de nouveau libre : le même nom peut être
+// recréé, sous un nouvel identifiant. La suppression libère aussi une place
+// sous la limite de 20 profils.
+func TestDeletePickerFreesNameAndSlot(t *testing.T) {
+	resetDB(t)
+	fillPickers(t, pickerLimit-1)
+	test, err := st.CreatePicker(t.Context(), "Test")
+	if err != nil {
+		t.Fatalf("20e profil : %v", err)
+	}
+	if err := st.DeletePicker(t.Context(), test.ID); err != nil {
+		t.Fatalf("DeletePicker : %v", err)
+	}
+
+	again, err := st.CreatePicker(t.Context(), "Test")
+	if err != nil {
+		t.Fatalf("Test recréé après la suppression : erreur %v, attendu une création", err)
+	}
+	if again.ID == test.ID || again.Name != "Test" {
+		t.Errorf("profil recréé %+v, attendu Test avec un nouvel identifiant (l'ancien était %d)", again, test.ID)
+	}
+	if _, err := st.CreatePicker(t.Context(), "Vingt et unième"); !errors.Is(err, store.ErrTooManyPickers) {
+		t.Errorf("21e profil : erreur %v, attendu ErrTooManyPickers", err)
+	}
+	if got := pickerCount(t); got != pickerLimit {
+		t.Errorf("%d profils, attendu %d", got, pickerLimit)
+	}
+}
+
+// Deux suppressions simultanées du même profil : une seule réussit, l'autre
+// reçoit ErrPickerNotFound. Le scénario est répété pour multiplier les
+// entrelacements.
+func TestDeletePickerConcurrentDeletes(t *testing.T) {
+	for round := 1; round <= 20; round++ {
+		resetDB(t)
+		test, err := st.CreatePicker(t.Context(), "Test")
+		if err != nil {
+			t.Fatalf("tour %d : création de Test : %v", round, err)
+		}
+		del := func() error { return st.DeletePicker(t.Context(), test.ID) }
+		errs := runTogether(del, del)
+		ok, notFound := 0, 0
+		for _, err := range errs {
+			switch {
+			case err == nil:
+				ok++
+			case errors.Is(err, store.ErrPickerNotFound):
+				notFound++
+			default:
+				t.Fatalf("tour %d : erreur inattendue %v", round, err)
+			}
+		}
+		if ok != 1 || notFound != 1 {
+			t.Fatalf("tour %d : %d succès et %d ErrPickerNotFound, attendu 1 et 1", round, ok, notFound)
 		}
 	}
 }

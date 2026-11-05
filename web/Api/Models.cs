@@ -25,6 +25,13 @@ public record Picker(long Id, string Name, DateTimeOffset CreatedAt)
     public string Initial => StringInfo.GetNextTextElement(Name).ToUpperInvariant();
 }
 
+/// <summary>
+/// Valeur d'un appel réussi dont la réponse n'a pas de corps (204 No Content,
+/// suppression d'un profil) : l'équivalent de None en Python. Seul
+/// IsSuccess compte.
+/// </summary>
+public readonly record struct NoContent;
+
 /// <summary>Statuts d'une commande, tels que l'API les écrit.</summary>
 public static class OrderStatus
 {

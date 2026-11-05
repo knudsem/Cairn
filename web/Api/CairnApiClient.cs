@@ -17,7 +17,7 @@ namespace Cairn.Web.Api;
 ///
 /// Démarrage de l'API (docs/PLAN.md, étape 11 bis) : une lecture (GET) est
 /// réessayée tant que l'API démarre, dans la limite du délai configuré ; une
-/// écriture (POST) n'est jamais renvoyée sans action du préparateur.
+/// écriture (POST, DELETE) n'est jamais renvoyée sans action du préparateur.
 /// </remarks>
 public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
 {
@@ -55,6 +55,28 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
     /// </summary>
     public Task<ApiResult<Picker>> CreatePickerAsync(string name) =>
         SendAsync<Picker>(HttpMethod.Post, "api/pickers", JsonContent.Create(new { name }, options: Json), HttpStatusCode.Created);
+
+    /// <summary>
+    /// DELETE /api/pickers/{id} : supprime le profil (étape 13). Succès : 204,
+    /// sans corps. Refus prévus (Rejected) : 404 profil_introuvable (déjà
+    /// supprimé ailleurs), 400. Un seul envoi, comme toute écriture.
+    /// </summary>
+    public Task<ApiResult<NoContent>> DeletePickerAsync(long id) =>
+        SendAsync<NoContent>(HttpMethod.Delete, $"api/pickers/{id}", null, HttpStatusCode.NoContent);
+
+    /// <summary>
+    /// Vrai si le profil id existe encore, d'après GET /api/pickers (20 profils
+    /// au plus) : un profil choisi dans cet onglet a pu être supprimé depuis un
+    /// autre (étape 13). Lecture réessayée pendant le démarrage de l'API, comme
+    /// les autres ; en cas d'échec, l'erreur de la lecture.
+    /// </summary>
+    public async Task<ApiResult<bool>> PickerExistsAsync(long id, Func<Task>? onStarting = null)
+    {
+        var result = await GetPickersAsync(onStarting);
+        return result.IsSuccess
+            ? ApiResult<bool>.Success(result.Value.Any(picker => picker.Id == id))
+            : ApiResult<bool>.Failure(result.Error);
+    }
 
     /// <summary>GET /api/orders : les commandes, la plus ancienne en premier.</summary>
     public Task<ApiResult<IReadOnlyList<OrderSummary>>> GetOrdersAsync(Func<Task>? onStarting = null) =>
@@ -153,6 +175,13 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
             // de HttpRequestException.
             using var response = await http.SendAsync(request, cancellationToken);
             status = (int)response.StatusCode;
+            // Succès sans corps (204, suppression d'un profil) : rien à lire.
+            // Ce test passe avant IsStarting, qui prendrait cette réponse sans
+            // type pour la page d'un intermédiaire.
+            if (expected == HttpStatusCode.NoContent && response.StatusCode == expected)
+            {
+                return ApiResult<T>.Success(default!);
+            }
             if (IsStarting(response))
             {
                 // Une ligne par essai, avec le code et le type reçus : de quoi
@@ -200,7 +229,8 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
     /// l'API, et non de l'API : un code 502, 503 ou 504, ou une réponse qui
     /// n'est pas du JSON (page HTML d'attente ou d'erreur). L'API répond
     /// toujours en JSON, sauf son routeur pour une route inconnue (404 ou 405
-    /// en texte brut), ce que le client ne demande jamais.
+    /// en texte brut), ce que le client ne demande jamais, et la suppression
+    /// d'un profil (204 sans corps), reconnue avant ce test (SendAsync).
     /// </summary>
     private static bool IsStarting(HttpResponseMessage response) =>
         response.StatusCode is HttpStatusCode.BadGateway or HttpStatusCode.ServiceUnavailable or HttpStatusCode.GatewayTimeout

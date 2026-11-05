@@ -40,10 +40,11 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 - Historique des mouvements de stock (qui, quoi, quand).
 - Alertes de stock bas.
 - Annulation de la validation d'une ligne, avec remise en stock.
+- Suppression d'un profil depuis « Qui prépare ? », avec confirmation ; les lignes déjà préparées gardent son nom (docs/PLAN.md, étape 13).
 
 ### Hors périmètre
 - Authentification : les profils de préparateurs n'ont ni mot de passe ni droits. N'importe qui peut choisir un profil ou en créer un. C'est un choix assumé pour ce prototype, à revoir avant tout usage réel.
-- Modification et suppression d'un profil.
+- Modification d'un profil (son nom).
 - Création ou modification de commandes depuis l'interface.
 
 ## 4. Stack technique
@@ -86,11 +87,12 @@ La contrainte `CHECK` en base sert de filet de sécurité supplémentaire. Le ch
 | `GET` | `/api/products` | Lister les produits et leur stock |
 | `GET` | `/api/pickers` | Lister les profils de préparateurs, triés par nom |
 | `POST` | `/api/pickers` | Créer un profil (corps : `{ "name": "Nom" }`) |
+| `DELETE` | `/api/pickers/{id}` | Supprimer un profil (bonus) ; les lignes déjà préparées gardent son nom |
 
 ### Codes de réponse
-- `200` : succès ; `201` : profil créé.
+- `200` : succès ; `201` : profil créé ; `204` : profil supprimé.
 - `400` : requête invalide.
-- `404` : commande ou ligne introuvable.
+- `404` : commande, ligne ou profil introuvable.
 - `409` : conflit (stock insuffisant, ligne déjà préparée, profil existant ou trop de profils), avec un message lisible.
 
 Les erreurs sont renvoyées dans un format JSON unique, par exemple `{ "error": "stock_insuffisant", "message": "..." }`.
@@ -98,7 +100,7 @@ Les erreurs sont renvoyées dans un format JSON unique, par exemple `{ "error": 
 ## 7. Interface Blazor
 
 Écrans :
-1. **Qui prépare ?** : les profils en gros boutons, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler ». Le profil choisi est gardé pour la session ; la barre du haut affiche son nom et un bouton « Changer ».
+1. **Qui prépare ?** : les profils en gros boutons, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler ». Le profil choisi est gardé pour la session ; la barre du haut affiche son nom et un bouton « Changer ». En bonus, un bouton « Gérer les profils » ouvre un mode gestion, où toucher un profil ouvre la confirmation de sa suppression dans la page.
 2. **Commandes** : liste des commandes, statut visible par une couleur et un libellé, la plus ancienne en premier.
 3. **Préparation d'une commande** : une carte par ligne avec le produit, la quantité en très grand, l'emplacement bien visible, et un gros bouton « Préparé ».
 

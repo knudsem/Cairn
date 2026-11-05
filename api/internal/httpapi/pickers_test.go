@@ -1,7 +1,8 @@
 package httpapi_test
 
 // Tests de GET et POST /api/pickers (docs/PLAN.md, étape 7 bis) : réponses,
-// conflits, contrôle du corps et du nom, panne de base. Les règles du nom
+// conflits, contrôle du corps et du nom, panne de base. Puis DELETE
+// /api/pickers/{id} (étape 13) : 204, 404, 400, historique intact. Les règles du nom
 // sont celles de l'étape 7 (body.go) : pick_test.go les teste toutes, ce
 // fichier vérifie chacune une fois pour cette route, ainsi que la limite de
 // 50 caractères, que la base vérifie aussi pour les profils.
@@ -12,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -208,34 +210,127 @@ func TestCreatePickerInvalidRequests(t *testing.T) {
 }
 
 // Une panne de la base donne 500 erreur_interne avec le message générique,
-// sur les deux routes ; l'erreur est journalisée avec la route.
+// sur les trois routes ; l'erreur est journalisée avec la route.
 func TestPickersDatabaseError(t *testing.T) {
 	logs := captureLogs(t)
 	broken := brokenHandler(t)
-	for _, c := range []struct{ method, body string }{
-		{http.MethodGet, ""},
-		{http.MethodPost, `{"name": "Karim"}`},
+	for _, c := range []struct{ method, path, body string }{
+		{http.MethodGet, "/api/pickers", ""},
+		{http.MethodPost, "/api/pickers", `{"name": "Karim"}`},
+		{http.MethodDelete, "/api/pickers/1", ""},
 	} {
 		t.Run(c.method, func(t *testing.T) {
 			contentType := ""
 			if c.body != "" {
 				contentType = "application/json"
 			}
-			rec := request(t, broken, c.method, "/api/pickers", contentType, c.body)
+			rec := request(t, broken, c.method, c.path, contentType, c.body)
 			if got := checkError(t, rec, http.StatusInternalServerError, "erreur_interne"); got != internalMessage {
 				t.Errorf("message %q, attendu %q", got, internalMessage)
 			}
-			if !strings.Contains(logs.String(), c.method+" /api/pickers : ") {
+			if !strings.Contains(logs.String(), c.method+" "+c.path+" : ") {
 				t.Errorf("erreur absente des journaux : %q", logs.String())
 			}
 		})
 	}
 }
 
-// Une autre méthode que GET ou POST reçoit 405 du routeur.
+// Une autre méthode que GET ou POST sur la liste, ou que DELETE sur un
+// profil, reçoit 405 du routeur : la liste entière ne se supprime pas.
 func TestPickersOtherMethods(t *testing.T) {
 	rec := request(t, handler, http.MethodDelete, "/api/pickers", "", "")
 	if allow := rec.Result().Header.Get("Allow"); rec.Code != http.StatusMethodNotAllowed || !strings.Contains(allow, "GET") || !strings.Contains(allow, "POST") {
 		t.Errorf("DELETE /api/pickers : code %d, Allow %q ; attendu 405, GET et POST", rec.Code, allow)
+	}
+	rec = request(t, handler, http.MethodPut, "/api/pickers/1", "application/json", `{"name": "Test"}`)
+	if allow := rec.Result().Header.Get("Allow"); rec.Code != http.StatusMethodNotAllowed || allow != "DELETE" {
+		t.Errorf("PUT /api/pickers/1 : code %d, Allow %q ; attendu 405 et DELETE", rec.Code, allow)
+	}
+}
+
+// deletePicker envoie DELETE /api/pickers/{id}, avec id écrit tel quel dans
+// le chemin.
+func deletePicker(t *testing.T, id string) *httptest.ResponseRecorder {
+	t.Helper()
+	return request(t, handler, http.MethodDelete, "/api/pickers/"+id, "", "")
+}
+
+// createTestPicker crée le profil Test et renvoie son identifiant, écrit
+// pour le chemin.
+func createTestPicker(t *testing.T) string {
+	t.Helper()
+	rec := postPicker(t, `{"name": "Test"}`)
+	var p pickerJSON
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &p) != nil {
+		t.Fatalf("création de Test : code %d (corps : %s)", rec.Code, rec.Body)
+	}
+	return strconv.FormatInt(p.ID, 10)
+}
+
+// Étape 13 : DELETE /api/pickers/{id} répond 204, sans corps, et le profil
+// disparaît de la liste. Une seconde suppression, ou un identifiant
+// inconnu, répond 404 profil_introuvable au format d'erreur unique.
+func TestDeletePickerRoute(t *testing.T) {
+	setup(t)
+	id := createTestPicker(t)
+
+	rec := deletePicker(t, id)
+	if rec.Code != http.StatusNoContent || rec.Body.Len() != 0 {
+		t.Errorf("suppression : code %d, corps %q ; attendu 204 sans corps", rec.Code, rec.Body)
+	}
+	rec = get(t, "/api/pickers")
+	var pickers []pickerJSON
+	decodeJSON(t, rec, &pickers)
+	if len(pickers) != 0 {
+		t.Errorf("profils après la suppression : %s, attendu []", strings.TrimSpace(rec.Body.String()))
+	}
+
+	for _, unknown := range []string{id, "999"} {
+		want := "Le profil " + unknown + " n'existe pas."
+		if got := checkError(t, deletePicker(t, unknown), http.StatusNotFound, "profil_introuvable"); got != want {
+			t.Errorf("profil %s : message %q, attendu %q", unknown, got, want)
+		}
+	}
+}
+
+// Un identifiant invalide donne 400 requete_invalide, avec le message de
+// parseID, et rien n'est supprimé.
+func TestDeletePickerInvalidIDs(t *testing.T) {
+	setup(t)
+	createTestPicker(t)
+	for _, id := range []string{"abc", "0", "-1", "+1", "01", "1.5", "9223372036854775808"} {
+		t.Run(id, func(t *testing.T) {
+			want := `Identifiant de profil invalide : "` + id + `". Un nombre entier positif, sans zéro en tête, est attendu.`
+			if got := checkError(t, deletePicker(t, id), http.StatusBadRequest, "requete_invalide"); got != want {
+				t.Errorf("message %q, attendu %q", got, want)
+			}
+		})
+	}
+	if got := pickerCount(t); got != 1 {
+		t.Errorf("%d profil(s) après les refus, attendu 1", got)
+	}
+}
+
+// L'historique reste juste, de bout en bout : une ligne validée au nom de
+// Test affiche toujours Test dans GET /api/orders/{id} après la suppression
+// du profil, et le même nom peut ensuite être recréé.
+func TestDeletePickerKeepsHistoryAndFreesName(t *testing.T) {
+	setup(t)
+	id := createTestPicker(t)
+	if rec := pick(t, 101, 201, `{"picker": "Test"}`); rec.Code != http.StatusOK {
+		t.Fatalf("validation au nom de Test : code %d (corps : %s)", rec.Code, rec.Body)
+	}
+	if rec := deletePicker(t, id); rec.Code != http.StatusNoContent {
+		t.Fatalf("suppression de Test : code %d (corps : %s)", rec.Code, rec.Body)
+	}
+
+	var order orderJSON
+	decodeJSON(t, get(t, "/api/orders/101"), &order)
+	if pickedBy, stock := lineOf(t, order, 201); pickedBy != "Test" || stock != 6 {
+		t.Errorf("ligne 201 après la suppression : préparée par %q, stock %d ; attendu Test et 6", pickedBy, stock)
+	}
+
+	if again := createTestPicker(t); again == id {
+		t.Errorf("Test recréé avec l'identifiant %s de l'ancien profil, attendu un nouvel identifiant", again)
 	}
 }

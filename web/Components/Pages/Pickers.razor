@@ -4,21 +4,69 @@
 @inject ApiWakeUp ApiWakeUp
 @inject PickerState PickerState
 @inject NavigationManager Nav
+@implements IDisposable
 
-@* Écran « Qui prépare ? » (docs/PLAN.md, étape 7 bis) : le préparateur choisit
-   son profil, ou crée le sien. Un panneau centré, avec deux affichages sur la
-   même adresse : la grille des profils, et le formulaire « Nouveau profil »,
-   qui la remplace dans le panneau. *@
+@* Écran « Qui prépare ? » (docs/PLAN.md, étapes 7 bis et 13) : le préparateur
+   choisit son profil, crée le sien ou en supprime un. Un panneau centré, avec
+   trois affichages sur la même adresse : la grille des profils, le
+   formulaire « Nouveau profil » et la confirmation d'une suppression, qui la
+   remplacent dans le panneau. La grille a un mode gestion, où toucher une
+   carte propose de supprimer le profil au lieu de le choisir.
 
-<div class="page">
+   tabindex="-1" et @onkeydown : un clic dans la page y garde le focus, et la
+   touche Échap, qui remonte jusqu'ici, quitte le mode gestion. *@
+
+<div class="page" tabindex="-1" @onkeydown="OnKeyDown">
     <div class="panel">
-        @if (!adding)
+        @* Message (étape 13) : succès d'une suppression, ou profil de cet
+           onglet supprimé depuis un autre. Le conteneur reste toujours dans la
+           page, vide au repos : un lecteur d'écran annonce le texte qui y
+           apparaît, sans que le focus y aille. *@
+        <div role="status" aria-live="polite">
+            @if (notice is not null)
+            {
+                if (noticeIsSuccess)
+                {
+                    <p class="banner-success"><span aria-hidden="true">✓</span> @notice</p>
+                }
+                else
+                {
+                    <p class="picker-info">@notice</p>
+                }
+            }
+        </div>
+
+        @if (confirming is { } doomed)
+        {
+            <PageTitle>Supprimer un profil - Cairn</PageTitle>
+
+            <div class="picker-head">
+                <span class="picker-avatar picker-confirm-avatar" aria-hidden="true">@doomed.Initial</span>
+                @* tabindex="-1" : le titre reçoit le focus à l'ouverture, et un
+                   lecteur d'écran lit la question. bdi isole le nom, comme
+                   dir="auto" sur les cartes. *@
+                <h1 tabindex="-1" @ref="confirmTitle">Supprimer le profil <bdi>@doomed.Name</bdi>&nbsp;?</h1>
+                <p class="lead">Les lignes qu'il a déjà préparées gardent son nom.</p>
+            </div>
+            @if (deleteError is not null)
+            {
+                <p class="field-error" role="alert">
+                    <span class="field-error-icon" aria-hidden="true">!</span>
+                    <span>@deleteError</span>
+                </p>
+            }
+            <div class="form-actions">
+                <button type="button" class="button button-danger" disabled="@deleting" @onclick="DeleteAsync">@(deleting ? "Suppression..." : "Supprimer")</button>
+                <button type="button" class="button button-secondary" disabled="@deleting" @onclick="CancelDelete">Annuler</button>
+            </div>
+        }
+        else if (!adding)
         {
             <PageTitle>Qui prépare ? - Cairn</PageTitle>
 
             <div class="picker-head">
                 <h1>Qui prépare ?</h1>
-                <p class="lead">Choisissez votre nom avant d'ouvrir une commande.</p>
+                <p class="lead">@(managing ? "Touchez un profil pour le supprimer." : "Choisissez votre nom avant d'ouvrir une commande.")</p>
             </div>
 
             @if (loadError is not null)
@@ -62,17 +110,43 @@
                     {
                         @* La pastille est décorative (aria-hidden) : le nom suffit à
                            un lecteur d'écran. dir="auto" isole le nom : un nom écrit
-                           de droite à gauche s'affiche dans son sens. *@
-                        <button type="button" class="picker-card" @onclick="() => Choose(picker)">
+                           de droite à gauche s'affiche dans son sens. En mode
+                           gestion, la carte ouvre la confirmation de la
+                           suppression : aria-label le dit, le badge rouge à la
+                           croix le montre (décoratif). Hors mode gestion,
+                           aria-label vaut null et Blazor ne l'écrit pas. *@
+                        <button type="button" class="picker-card @(managing ? "picker-card-managed" : null)"
+                                aria-label="@(managing ? $"Supprimer le profil {picker.Name}" : null)"
+                                @ref="cardButtons[picker.Id]" @onclick="() => CardClicked(picker)">
                             <span class="picker-avatar" aria-hidden="true">@picker.Initial</span>
                             <span class="picker-name" dir="auto">@picker.Name</span>
+                            @if (managing)
+                            {
+                                <span class="picker-remove-badge" aria-hidden="true">
+                                    <svg viewBox="0 0 12 12" focusable="false"><path d="M3.5 3.5l5 5M8.5 3.5l-5 5" /></svg>
+                                </span>
+                            }
                         </button>
                     }
-                    <button type="button" class="picker-card picker-card-add" @ref="addButton" @onclick="StartAdding">
-                        <span class="picker-avatar" aria-hidden="true">+</span>
-                        <span class="picker-name">Ajouter un profil</span>
-                    </button>
+                    @if (!managing)
+                    {
+                        <button type="button" class="picker-card picker-card-add" @ref="addButton" @onclick="StartAdding">
+                            <span class="picker-avatar" aria-hidden="true">+</span>
+                            <span class="picker-name">Ajouter un profil</span>
+                        </button>
+                    }
                 </div>
+                @if (pickers.Count > 0)
+                {
+                    @* aria-pressed : un lecteur d'écran annonce un bouton
+                       bascule, enfoncé en mode gestion. *@
+                    <div class="picker-manage">
+                        <button type="button" class="button @(managing ? null : "button-secondary")"
+                                aria-pressed="@(managing ? "true" : "false")" @ref="manageButton" @onclick="ToggleManaging">
+                            @(managing ? "Terminé" : "Gérer les profils")
+                        </button>
+                    </div>
+                }
             }
         }
         else
@@ -137,11 +211,45 @@
     // Heure d'ouverture du formulaire : voir CancelAsync.
     private DateTime addingSince;
 
+    // Confirmation d'une suppression (étape 13) : le profil visé, ou null.
+    private Picker? confirming;
+    private bool deleting;
+    private string? deleteError;
+    // Heure d'ouverture de la confirmation : voir DeleteAsync.
+    private DateTime confirmingSince;
+
+    // Mode gestion (étape 13) : toucher une carte propose de supprimer le
+    // profil, au lieu de le choisir.
+    private bool managing;
+    // Heure de la dernière entrée dans le mode gestion, ou de la dernière
+    // sortie : voir ToggleManaging et CardClicked.
+    private DateTime managingToggledAt;
+
+    // Message en haut du panneau, ou null : succès d'une suppression (vert,
+    // effacé au bout de SuccessNoticeDuration), ou information (neutre :
+    // profil de cet onglet supprimé depuis un autre). Les deux disparaissent
+    // dès l'action suivante.
+    private string? notice;
+    private bool noticeIsSuccess;
+    private CancellationTokenSource? noticeTimer;
+    private static readonly TimeSpan SuccessNoticeDuration = TimeSpan.FromSeconds(5);
+
+    // Garde contre le double appui (voir CancelAsync, DeleteAsync, CardClicked).
+    private static readonly TimeSpan DoubleTapDelay = TimeSpan.FromMilliseconds(500);
+
     // Éléments qui reçoivent le focus, et focus à placer au prochain rendu.
     private ElementReference nameInput;
     private ElementReference addButton;
+    private ElementReference confirmTitle;
+    private ElementReference manageButton;
+    // Carte de chaque profil, par identifiant : le focus y revient après
+    // « Annuler ».
+    private readonly Dictionary<long, ElementReference> cardButtons = [];
     private bool focusNameInput;
     private bool focusAddButton;
+    private bool focusConfirmTitle;
+    private bool focusManageButton;
+    private long? focusCardOf;
 
     /// <summary>
     /// Adresse de « Qui prépare ? » qui ramène ensuite à la page actuelle,
@@ -155,10 +263,49 @@
         return IsSafeReturnUrl(current) ? "pickers?returnUrl=" + Uri.EscapeDataString(current) : "pickers";
     }
 
+    /// <summary>
+    /// Vérifie, avant une action, que le profil choisi existe encore (étape
+    /// 13) : supprimé depuis un autre onglet, il est oublié, et « Qui prépare
+    /// ? » s'ouvre avec un message, puis ramènera à la page actuelle. Rend
+    /// vrai dans ce cas : la page appelante s'arrête là. Si l'API ne répond
+    /// pas, rend faux : l'action continue, et son propre appel affichera
+    /// l'erreur.
+    /// </summary>
+    public static async Task<bool> LeaveIfPickerDeletedAsync(CairnApiClient api, PickerState state,
+        NavigationManager nav, Func<Task>? onStarting)
+    {
+        if (state.Current is not { } picker)
+        {
+            return false;
+        }
+        var exists = await api.PickerExistsAsync(picker.Id, onStarting);
+        if (!exists.IsSuccess || exists.Value)
+        {
+            return false;
+        }
+        // À l'ouverture de /orders/5, la liste et la commande vérifient en même
+        // temps : seule la première oublie le profil et change de page.
+        if (state.Current == picker)
+        {
+            var url = UrlFor(nav);
+            state.ClearDeleted();
+            nav.NavigateTo(url, replace: true);
+        }
+        return true;
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        // Profil de cet onglet supprimé depuis un autre : le message s'affiche
+        // une fois, en haut du panneau, jusqu'à l'action suivante.
+        if (PickerState.TakeNotice() is { } deleted)
+        {
+            ShowNotice(deleted, success: false);
+        }
         await LoadAsync();
     }
+
+    public void Dispose() => ClearNotice();
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -172,18 +319,40 @@
                 focusNameInput = false;
                 await nameInput.FocusAsync();
             }
+            else if (focusConfirmTitle)
+            {
+                focusConfirmTitle = false;
+                await confirmTitle.FocusAsync();
+            }
+            else if (focusManageButton && manageButton.Context is not null)
+            {
+                // Context est null tant que le bouton n'a jamais été affiché :
+                // le drapeau attend alors le rendu qui l'affiche.
+                focusManageButton = false;
+                await manageButton.FocusAsync();
+            }
+            else if (focusCardOf is { } id)
+            {
+                focusCardOf = null;
+                if (cardButtons.TryGetValue(id, out var card))
+                {
+                    await card.FocusAsync();
+                }
+            }
             else if (focusAddButton)
             {
                 focusAddButton = false;
                 await addButton.FocusAsync();
             }
         }
-        catch (JSException)
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
         {
             // Un rendu suivant a pu retirer l'élément entre-temps : après
             // « Annuler », un rechargement qui échoue vite remplace la liste
-            // par l'encadré d'erreur. Sans ce try, l'exception couperait le
-            // circuit Blazor.
+            // par l'encadré d'erreur (JSException). Ou l'élément n'a encore
+            // jamais été affiché (InvalidOperationException) : voir
+            // focusManageButton et DeleteAsync. Sans ce try, l'exception
+            // couperait le circuit Blazor.
         }
     }
 
@@ -198,6 +367,12 @@
         if (result.IsSuccess)
         {
             pickers = result.Value;
+            // Plus aucun profil : le bouton « Gérer les profils » disparaît, et
+            // le mode gestion avec lui.
+            if (pickers.Count == 0)
+            {
+                managing = false;
+            }
         }
         else
         {
@@ -226,6 +401,7 @@
         {
             return;
         }
+        ClearNotice();
         pickers = null;
         await LoadAsync();
         // Le bouton « Réessayer » a disparu : le focus va sur la carte
@@ -243,6 +419,7 @@
 
     private void StartAdding()
     {
+        ClearNotice();
         adding = true;
         addingSince = DateTime.UtcNow;
         newName = "";
@@ -292,7 +469,7 @@
         // profil » peut toucher « Annuler », qui apparaît dans le même
         // panneau : un appui dans la demi-seconde qui suit l'ouverture est
         // ignoré.
-        if (creating || DateTime.UtcNow - addingSince < TimeSpan.FromMilliseconds(500))
+        if (creating || DateTime.UtcNow - addingSince < DoubleTapDelay)
         {
             return;
         }
@@ -303,6 +480,177 @@
         // sur une autre tablette, par exemple celui que « Ce profil existe
         // déjà » désigne.
         await LoadAsync();
+    }
+
+    // « Gérer les profils » et « Terminé » : entre dans le mode gestion, ou en
+    // sort. Avec des gants, le second appui d'un double appui, sur le même
+    // bouton, est ignoré : il annulerait le premier.
+    private void ToggleManaging()
+    {
+        if (DateTime.UtcNow - managingToggledAt < DoubleTapDelay)
+        {
+            return;
+        }
+        managing = !managing;
+        managingToggledAt = DateTime.UtcNow;
+        ClearNotice();
+    }
+
+    // La touche Échap quitte le mode gestion, quand la grille est affichée.
+    // Le focus va sur « Gérer les profils », pour ne pas se perdre. Pas de
+    // garde contre le double appui ici : il n'existe pas au clavier.
+    private void OnKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key != "Escape" || !managing || confirming is not null || adding)
+        {
+            return;
+        }
+        managing = false;
+        ClearNotice();
+        focusManageButton = true;
+    }
+
+    // Appui sur une carte : en mode gestion, la confirmation de la
+    // suppression, et jamais le choix du profil ; sinon, le choix du profil.
+    // Un appui dans la demi-seconde qui suit l'entrée dans le mode gestion,
+    // ou la sortie, est ignoré : le second appui d'un double appui sur
+    // « Gérer les profils » ou « Terminé » ne doit viser aucun profil.
+    private void CardClicked(Picker picker)
+    {
+        if (DateTime.UtcNow - managingToggledAt < DoubleTapDelay)
+        {
+            return;
+        }
+        if (managing)
+        {
+            AskDelete(picker);
+        }
+        else
+        {
+            Choose(picker);
+        }
+    }
+
+    // Ouvre la confirmation de la suppression, sans choisir le profil.
+    private void AskDelete(Picker picker)
+    {
+        confirming = picker;
+        confirmingSince = DateTime.UtcNow;
+        deleteError = null;
+        ClearNotice();
+        focusConfirmTitle = true;
+    }
+
+    // Retour à la grille, toujours en mode gestion, sans rien supprimer, avec
+    // le focus sur la carte d'où l'on vient. Même garde que CancelAsync.
+    private void CancelDelete()
+    {
+        if (deleting || DateTime.UtcNow - confirmingSince < DoubleTapDelay)
+        {
+            return;
+        }
+        focusCardOf = confirming?.Id;
+        confirming = null;
+        deleteError = null;
+    }
+
+    // Affiche le message en haut du panneau. Un succès s'efface seul au bout
+    // de SuccessNoticeDuration ; une information reste jusqu'à l'action
+    // suivante, le temps de comprendre pourquoi on est revenu ici.
+    private void ShowNotice(string message, bool success)
+    {
+        ClearNotice();
+        notice = message;
+        noticeIsSuccess = success;
+        if (success)
+        {
+            noticeTimer = new CancellationTokenSource();
+            _ = HideNoticeLaterAsync(noticeTimer.Token);
+        }
+    }
+
+    // Efface le message, et annule son effacement programmé.
+    private void ClearNotice()
+    {
+        notice = null;
+        noticeTimer?.Cancel();
+        noticeTimer?.Dispose();
+        noticeTimer = null;
+    }
+
+    // Efface le message au bout de SuccessNoticeDuration, sauf si une action
+    // l'a déjà effacé (annulation). La suite de l'attente revient sur le
+    // circuit de l'onglet, comme après un appel à l'API : StateHasChanged
+    // redessine la page.
+    private async Task HideNoticeLaterAsync(CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(SuccessNoticeDuration, token);
+        }
+        catch (TaskCanceledException)
+        {
+            return;
+        }
+        // Annulé juste après la fin de l'attente : un nouveau message l'a
+        // remplacé, il ne faut pas l'effacer.
+        if (token.IsCancellationRequested)
+        {
+            return;
+        }
+        notice = null;
+        StateHasChanged();
+    }
+
+    private async Task DeleteAsync()
+    {
+        // Avec des gants, le second appui d'un double appui sur une carte en
+        // mode gestion pourrait toucher le « Supprimer » de la confirmation,
+        // qui apparaît dans le même panneau, et sauter la confirmation : un
+        // appui dans la demi-seconde qui suit l'ouverture est ignoré. Un
+        // second appui pendant l'appel aussi.
+        if (deleting || confirming is not { } picker || DateTime.UtcNow - confirmingSince < DoubleTapDelay)
+        {
+            return;
+        }
+        deleting = true;
+        deleteError = null;
+        var result = await Api.DeletePickerAsync(picker.Id);
+        deleting = false;
+        // 404 profil_introuvable : supprimé entre-temps depuis un autre écran.
+        // Le résultat voulu est atteint.
+        var alreadyDeleted = result.Error is { Kind: ApiErrorKind.Rejected, Code: "profil_introuvable" };
+        if (!result.IsSuccess && !alreadyDeleted)
+        {
+            // L'API démarre : la suppression n'est pas renvoyée, mais le
+            // navigateur réveille l'API pour le prochain essai.
+            if (result.Error.Kind == ApiErrorKind.Starting)
+            {
+                await ApiWakeUp.WakeUpAsync();
+            }
+            deleteError = result.Error.UserMessage;
+            return;
+        }
+        confirming = null;
+        // La liste est relue : elle montre aussi les changements faits
+        // entre-temps sur une autre tablette. Le mode gestion reste actif,
+        // pour supprimer un autre profil, sauf s'il n'en reste aucun.
+        await LoadAsync();
+        if (alreadyDeleted)
+        {
+            ShowNotice($"Le profil « {picker.Name} » avait déjà été supprimé.", success: false);
+        }
+        else
+        {
+            ShowNotice($"Profil « {picker.Name} » supprimé.", success: true);
+        }
+        // Le message est annoncé sans y mettre le focus (role="status") : le
+        // focus va sur « Terminé », ou sur « Ajouter un profil » s'il ne reste
+        // aucun profil. Les drapeaux sont levés après l'appel : Blazor Server
+        // appelle OnAfterRenderAsync quand le navigateur a reçu un rendu, et
+        // celui de « Suppression... » pourrait sinon les lire trop tôt.
+        focusManageButton = managing;
+        focusAddButton = !managing;
     }
 
     /// <summary>

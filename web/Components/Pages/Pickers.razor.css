@@ -10,6 +10,8 @@
 
 .picker-head h1 {
     margin-bottom: 1.5rem;
+    /* Un nom long, sans espace, passe à la ligne (confirmation d'une suppression). */
+    overflow-wrap: anywhere;
 }
 
 .picker-status {
@@ -17,10 +19,14 @@
 }
 
 /* Grille des profils : autant de colonnes que la largeur le permet. Trois
-   dans le panneau sur ordinateur et tablette, deux sur téléphone. */
+   dans le panneau sur ordinateur et tablette, deux sur téléphone. Toutes les
+   rangées ont la hauteur de la plus haute (grid-auto-rows) : sur téléphone,
+   « Ajouter un profil » passe sur deux lignes sans rendre sa rangée plus
+   haute que les autres. */
 .picker-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(var(--card-min-width), 1fr));
+    grid-auto-rows: 1fr;
     gap: 0.75rem;
 }
 
@@ -108,6 +114,79 @@
     .picker-card-add:hover .picker-avatar {
         background: var(--color-todo-light);
     }
+
+    /* Mode gestion : la bordure passe au rouge, comme le badge. */
+    .picker-card-managed:hover {
+        border-color: var(--color-error);
+    }
+
+    /* Plus spécifique que .button:hover (app.css), qui passerait le bouton
+       au bleu nuit. */
+    .button-danger:hover:not(:disabled) {
+        background: var(--color-error);
+        filter: brightness(0.85);
+    }
+}
+
+/* Message d'information en haut du panneau (étape 13) : profil de cet onglet
+   supprimé depuis un autre. Même forme que le bandeau de succès (app.css),
+   en neutre, sans bordure. Bleu nuit sur gris clair : 12:1. */
+.picker-info {
+    margin: 0 0 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius);
+    background: var(--color-todo-light);
+}
+
+/* Mode gestion (étape 13) : un badge rond rouge, à la croix, dans le coin
+   en haut à droite de chaque carte. Décoratif : toute la carte est la cible,
+   et son libellé dit « Supprimer le profil ... ». Sa taille suit celle de la
+   pastille (toucher ou souris). Blanc sur rouge : 7,8:1. */
+.picker-card-managed {
+    position: relative;
+}
+
+.picker-remove-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    display: grid;
+    place-items: center;
+    width: calc(var(--avatar-size) * 0.5);
+    height: calc(var(--avatar-size) * 0.5);
+    border-radius: 50%;
+    background: var(--color-error);
+    color: var(--color-white);
+}
+
+.picker-remove-badge svg {
+    width: 60%;
+    height: 60%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+}
+
+/* « Gérer les profils », puis « Terminé » : centré sous la grille. Sa hauteur
+   est celle des boutons (64 px au toucher, 44 px à la souris). */
+.picker-manage {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+}
+
+/* Confirmation d'une suppression : la pastille du profil visé, centrée
+   au-dessus de la question. */
+.picker-confirm-avatar {
+    margin: 0 auto 1.25rem;
+}
+
+/* « Supprimer » de la confirmation : rouge, la seule action destructrice de
+   Cairn. Blanc sur rouge : 7,8:1. */
+.button-danger {
+    background: var(--color-error);
+    color: var(--color-white);
 }
 
 @media (prefers-reduced-motion: reduce) {

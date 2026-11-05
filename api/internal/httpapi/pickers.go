@@ -28,8 +28,8 @@ type pickerRequest struct {
 // createPicker traite POST /api/pickers : le profil est créé et renvoyé,
 // avec le code 201 Created. Le nom suit les mêmes règles que celui du
 // préparateur à l'étape 7 (body.go). La réponse n'a pas d'en-tête Location :
-// il n'existe pas d'adresse pour un profil seul (pas de route GET
-// /api/pickers/{id}), et le corps décrit déjà le profil créé.
+// il n'existe pas de route GET /api/pickers/{id} (l'adresse d'un profil ne
+// sert qu'à sa suppression), et le corps décrit déjà le profil créé.
 func (h *handlers) createPicker(w http.ResponseWriter, r *http.Request) {
 	var body pickerRequest
 	if !readJSON(w, r, &body, `{"name": "Nom du profil"}`) {
@@ -53,6 +53,26 @@ func (h *handlers) createPicker(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, store.ErrTooManyPickers):
 		writeError(w, http.StatusConflict, codeTooManyPickers,
 			fmt.Sprintf("%d profils au maximum : impossible d'en créer un autre.", store.MaxPickers))
+	default:
+		writeInternalError(w, r, err)
+	}
+}
+
+// deletePicker traite DELETE /api/pickers/{id} (docs/PLAN.md, étape 13) : le
+// profil est supprimé, avec le code 204 No Content et sans corps. Les lignes
+// qu'il a préparées gardent son nom (store.DeletePicker).
+func (h *handlers) deletePicker(w http.ResponseWriter, r *http.Request) {
+	id, ok := parseID(w, r.PathValue("id"), "profil")
+	if !ok {
+		return
+	}
+
+	err := h.store.DeletePicker(r.Context(), id)
+	switch {
+	case err == nil:
+		w.WriteHeader(http.StatusNoContent)
+	case errors.Is(err, store.ErrPickerNotFound):
+		writeError(w, http.StatusNotFound, codePickerNotFound, fmt.Sprintf("Le profil %d n'existe pas.", id))
 	default:
 		writeInternalError(w, r, err)
 	}

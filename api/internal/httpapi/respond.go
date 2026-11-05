@@ -18,6 +18,7 @@ const (
 	codeInsufficientStock = "stock_insuffisant"
 	codePickerExists      = "profil_existant"
 	codeTooManyPickers    = "trop_de_profils"
+	codePickerNotFound    = "profil_introuvable"
 	codeInternal          = "erreur_interne"
 	codeDatabaseDown      = "base_indisponible"
 )
