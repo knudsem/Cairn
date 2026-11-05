@@ -10,11 +10,48 @@
     margin: 0 auto;
 }
 
+/* « Commandes » (retour à la liste) : un lien discret, sans fond ni bordure,
+   une flèche et le mot en bleu nuit. La cible garde la hauteur des boutons
+   (64 px à la tablette, 48 px au téléphone) ; la marge négative aligne la
+   flèche sur le bord du titre. Au survol ou à l'appui, un voile blanc léger,
+   comme « Réinitialiser la démo ». */
 .back-link {
     display: inline-flex;
     align-items: center;
-    margin-bottom: 1.25rem;
+    gap: 0.375rem;
+    min-height: var(--control-height);
+    margin: -0.5rem 0 0.75rem -0.5rem;
+    padding: 0 0.875rem 0 0.5rem;
+    border-radius: var(--radius);
+    color: var(--color-navy);
+    font-weight: 600;
     text-decoration: none;
+    transition: background-color 0.15s;
+}
+
+.back-link svg {
+    width: 1.25em;
+    height: 1.25em;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.back-link:active {
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.back-link:focus-visible {
+    outline: var(--focus-outline);
+    outline-offset: 2px;
+}
+
+@media (hover: hover) {
+    .back-link:hover {
+        background: rgba(255, 255, 255, 0.6);
+    }
 }
 
 /* Écran large (deux panneaux, comme Orders.razor.css) : la liste est à
@@ -267,17 +304,6 @@
     text-decoration: none;
 }
 
-/* Deux panneaux (à partir de 1024 px, comme Orders.razor.css et
-   « ← Commandes ») : la liste est déjà à gauche, et « Retour aux commandes »
-   ramènerait seulement au panneau vide « Choisissez une commande ». Même
-   spécificité que la règle au-dessus, et écrite après elle : elle l'emporte
-   sur son display: inline-flex. */
-@media (min-width: 64rem) {
-    .ready-actions .back-to-list {
-        display: none;
-    }
-}
-
 /* Titres des groupes : « À prendre ensuite », « Déjà pris ». */
 .section-title {
     margin: 1.75rem 0 0.75rem;
@@ -332,12 +358,6 @@
         grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
         gap: 2rem;
         align-items: start;
-    }
-
-    /* Les deux boutons de « Commande prête » l'un sous l'autre : la
-       colonne est trop étroite pour les mettre côte à côte. */
-    .ready-actions {
-        grid-template-columns: 1fr;
     }
 
     .detail-side .section-title:first-child {

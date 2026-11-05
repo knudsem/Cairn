@@ -16,7 +16,16 @@
 <PageTitle>@(order?.Customer ?? Customer ?? "Commande") - Cairn</PageTitle>
 
 <div class="detail">
-    <a class="button button-secondary back-link" href="./">← Commandes</a>
+    @* Retour à la liste, sur une seule colonne (téléphone, tablette en
+       portrait) : un lien discret, une flèche et le mot. Masqué en deux
+       panneaux, où la liste est déjà à gauche (OrderDetail.razor.css). C'est
+       le seul retour : « Retour aux commandes », qui faisait la même chose,
+       a été retiré (étape 15). aria-label donne la phrase entière à un
+       lecteur d'écran, qui contient le mot affiché. *@
+    <a class="back-link" href="./" aria-label="Retour aux commandes">
+        <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>
+        <span>Commandes</span>
+    </a>
 
     @{
         var ready = order?.Status == OrderStatus.Ready;
@@ -114,15 +123,14 @@
                             }
                         </span>
                     </div>
-                    <div class="ready-actions">
-                        @if (NextOrderId is { } next)
-                        {
+                    @* Sans commande suivante (dernière commande), pas de
+                       bouton : « Commandes », en haut, ramène à la liste. *@
+                    @if (NextOrderId is { } next)
+                    {
+                        <div class="ready-actions">
                             <a class="button" href="orders/@next" @ref="nextButton">Commande suivante</a>
-                        }
-                        @* Inutile quand la liste est déjà à gauche (deux
-                           panneaux) : masqué par OrderDetail.razor.css. *@
-                        <a class="button button-secondary back-to-list" href="./">Retour aux commandes</a>
-                    </div>
+                        </div>
+                    }
                 }
                 @* « Ce produit a déjà été pris par ... » : role="status", et
                    tabindex="-1" pour y placer le focus, le bouton appuyé ayant
