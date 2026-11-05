@@ -246,7 +246,8 @@
     line-height: 1.25;
 }
 
-.banner-success:focus,
+/* Le message « Ce produit a déjà été pris par ... » reçoit le focus ; celui
+   de succès, non (étape 14). */
 .banner-info:focus {
     outline: var(--focus-outline);
     outline-offset: 2px;

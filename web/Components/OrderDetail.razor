@@ -84,10 +84,20 @@
            fait. Une seule colonne en dessous. *@
         <div class="detail-columns">
             <div class="detail-main">
-                @* Messages après une validation. role="status" : un lecteur
-                   d'écran les annonce ; tabindex="-1" permet d'y placer le
-                   focus. Le bandeau « Commande prête » est un statut, pas un
-                   bouton : ni fond plein ni focus (étape 14). Le focus va sur
+                @* Message après une validation (« ✓ 3 pris à B-07-2 »), comme
+                   ceux de l'étape 13 : annoncé par un lecteur d'écran, sans
+                   focus, sans contour ni bordure. Le conteneur reste toujours
+                   dans la page, vide au repos : le texte qui y apparaît est
+                   annoncé sûrement. Le focus va là où se fait l'action
+                   suivante (voir Done). *@
+                <div role="status" aria-live="polite">
+                    @if (!ready && success is not null)
+                    {
+                        <p class="banner-success"><span aria-hidden="true">✓</span> @success</p>
+                    }
+                </div>
+                @* Le bandeau « Commande prête » est un statut, pas un bouton :
+                   ni fond plein ni focus (étape 14). Le focus va sur
                    « Commande suivante », ou sur le titre s'il n'y en a pas. *@
                 @if (ready)
                 {
@@ -114,10 +124,9 @@
                         <a class="button button-secondary back-to-list" href="./">Retour aux commandes</a>
                     </div>
                 }
-                else if (success is not null)
-                {
-                    <p class="banner-success" role="status" tabindex="-1" @ref="banner">✓ @success</p>
-                }
+                @* « Ce produit a déjà été pris par ... » : role="status", et
+                   tabindex="-1" pour y placer le focus, le bouton appuyé ayant
+                   disparu avec la ligne. *@
                 @if (info is not null)
                 {
                     <p class="banner-info" role="status" tabindex="-1" @ref="infoBanner">@info</p>
@@ -224,16 +233,19 @@
 
     // Focus à placer au prochain rendu : sur le titre à l'ouverture d'une
     // commande (Blazor ne le fait pas, le composant étant gardé d'une
-    // commande à l'autre), sur le bandeau après une validation, et sur
-    // « Commande suivante » quand la commande devient prête.
+    // commande à l'autre) ; après une validation, sur le bouton « C'est
+    // pris » de la nouvelle carte « À faire maintenant », ou sur « Commande
+    // suivante » quand la commande devient prête ; sur le message « Ce
+    // produit a déjà été pris par ... ».
     private ElementReference title;
-    private ElementReference banner;
     private ElementReference infoBanner;
     private ElementReference nextButton;
+    // Bouton « C'est pris » de la carte « À faire maintenant ».
+    private ElementReference nextPickButton;
     private bool focusTitle;
-    private bool focusBanner;
     private bool focusInfo;
     private bool focusNext;
+    private bool focusPick;
 
     // Le composant est gardé quand l'adresse passe d'une commande à une
     // autre : seul OrderId change. La commande est alors rechargée, et les
@@ -253,27 +265,33 @@
         info = null;
         ClearLineError();
         focusNext = false;
+        focusPick = false;
         focusTitle = true;
         await LoadAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!focusTitle && !focusBanner && !focusInfo && !focusNext)
+        if (!focusTitle && !focusInfo && !focusNext && !focusPick)
         {
             return;
         }
         // « Commande suivante » : Context est null tant que le bouton n'a
         // jamais été affiché ; le drapeau attend alors le rendu qui l'affiche.
-        if (focusNext && !focusBanner && !focusInfo && nextButton.Context is null)
+        if (focusNext && !focusInfo && nextButton.Context is null)
         {
             return;
         }
-        var target = focusBanner ? banner : focusInfo ? infoBanner : focusNext ? nextButton : title;
+        // « C'est pris » : pendant l'appel, le bouton désactivé a perdu le
+        // focus ; il le reprend, réactivé, pour le produit suivant.
+        var target = focusInfo ? infoBanner
+            : focusNext ? nextButton
+            : focusPick && nextPickButton.Context is not null ? nextPickButton
+            : title;
         focusTitle = false;
-        focusBanner = false;
         focusInfo = false;
         focusNext = false;
+        focusPick = false;
         try
         {
             await target.FocusAsync();
@@ -456,10 +474,12 @@
         }
     }
 
-    // Fin d'une validation réussie : « ✓ 3 pris à B-07-2 », garde contre le
-    // double appui, puis le focus : sur ce message, ou, si la commande est
-    // prête, sur « Commande suivante » (sur son titre s'il n'y en a pas). Le
-    // bandeau « Commande prête » ne prend pas le focus (étape 14).
+    // Fin d'une validation réussie : « ✓ 3 pris à B-07-2 » (annoncé, sans
+    // focus), garde contre le double appui, puis le focus là où se fait
+    // l'action suivante : le bouton « C'est pris » de la nouvelle carte « À
+    // faire maintenant », ou, si la commande est prête, « Commande suivante »
+    // (son titre s'il n'y en a pas). Un second appui au clavier dans les
+    // 700 ms reste ignoré par la garde.
     private void Done(OrderLine line)
     {
         pickingLineId = null;
@@ -472,9 +492,13 @@
         }
         else
         {
-            focusBanner = true;
+            focusPick = true;
         }
     }
+
+    // Texte du bouton d'une ligne : pendant l'appel, après une erreur, ou au repos.
+    private string PickLabel(OrderLine line) =>
+        pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "C'est pris";
 
     // Carte d'une ligne à préparer : la prochaine (isNext), en grand, ou une
     // des suivantes, plus compacte. Une information par ligne, avec son
@@ -508,7 +532,7 @@
             </div>
             <div class="line-product">
                 <h3 class="line-product-name">@line.ProductName</h3>
-                <span class="line-check">Vérifiez la référence sur l'étiquette : <strong>@line.Sku</strong></span>
+                <span class="line-check">Vérifiez la référence sur l'étiquette&nbsp;: <strong>@line.Sku</strong></span>
                 <span class="line-meta">Stock actuel : @line.StockQty</span>
             </div>
             @if (errorLineId == line.Id)
@@ -523,11 +547,24 @@
             }
             @* Bouton principal pour la carte « À faire maintenant », sauf après
                un stock insuffisant : « Réessayer » y devient secondaire. Les
-               autres produits restent à prendre, chacun avec son bouton. *@
-            <button type="button" class="button @(isNext ? "button-wide" : "line-button") @(isNext && !(errorIsStock && errorLineId == line.Id) ? null : "button-secondary")"
-                    disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
-                @(pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "C'est pris")
-            </button>
+               autres produits restent à prendre, chacun avec son bouton.
+               nextPickButton : Blazor garde le même bouton d'un produit à
+               l'autre pour cette carte (seul son texte change), la référence
+               reste donc valable ; le focus y revient après chaque appui. *@
+            @if (isNext)
+            {
+                <button type="button" class="button button-wide @(errorIsStock && errorLineId == line.Id ? "button-secondary" : null)"
+                        @ref="nextPickButton" disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
+                    @PickLabel(line)
+                </button>
+            }
+            else
+            {
+                <button type="button" class="button button-secondary line-button"
+                        disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
+                    @PickLabel(line)
+                </button>
+            }
         </article>;
 
     /// <summary>
