@@ -232,6 +232,6 @@
 @media (max-width: 30rem) {
     .orders-list,
     .orders-detail {
-        padding: 1rem 0.75rem 2rem;
+        padding: 1rem 1.25rem 2rem;
     }
 }

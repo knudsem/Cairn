@@ -2,7 +2,9 @@
 
    Deux densités, choisies selon le type d'écran et non selon sa largeur :
    - écran tactile (tablette, téléphone) : cibles de 64 px au moins, pour un
-     usage avec des gants, et texte de 20 px, lisible à un mètre ;
+     usage avec des gants, et texte de 20 px, lisible à un mètre ; sur un
+     téléphone (480 px de large au plus), les boutons font 48 px, le minimum
+     conseillé : à 64 px, ils écrasaient l'écran (étape 15) ;
    - souris (ordinateur) : boutons de 44 px et texte de 16 px, la densité
      d'une application métier.
    Les tailles sont des variables : chaque écran les utilise, sans valeur en
@@ -472,9 +474,11 @@ h1:focus {
    des cibles restent celles du toucher. Aucun élément ne doit dépasser la
    largeur de l'écran. */
 @media (max-width: 30rem) {
+    /* Marges latérales de 20 px sur téléphone, pour la barre du haut comme
+       pour la page : le contenu ne touche pas les bords (étape 15). */
     .app-header {
         gap: 0.5rem;
-        padding: 0.375rem 1rem;
+        padding: 0.375rem 1.25rem;
     }
 
     .app-logo {
@@ -501,7 +505,7 @@ h1:focus {
     }
 
     .page {
-        padding: 1rem 0.75rem;
+        padding: 1rem 1.25rem;
     }
 
     .panel {
@@ -514,5 +518,14 @@ h1:focus {
 
     :root {
         --font-size-display: 3.25rem;
+    }
+}
+
+/* Téléphone tactile : boutons et champs de 48 px au lieu de 64, tous, « C'est
+   pris » compris (étape 15). La tablette garde 64 px ; une fenêtre étroite à
+   la souris garde 44 px. */
+@media (pointer: coarse) and (max-width: 30rem) {
+    :root {
+        --control-height: 3rem;
     }
 }

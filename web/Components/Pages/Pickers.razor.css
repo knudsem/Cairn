@@ -120,6 +120,13 @@
         border-color: var(--color-error);
     }
 
+    /* Plus spécifique que .button-secondary:hover (app.css). */
+    .demo-reset-button:hover:not(:disabled) {
+        border-color: var(--color-navy);
+        background: rgba(255, 255, 255, 0.5);
+        color: var(--color-navy);
+    }
+
     /* Plus spécifique que .button:hover (app.css), qui passerait le bouton
        au bleu nuit. */
     .button-danger:hover:not(:disabled) {
@@ -177,9 +184,9 @@
 }
 
 /* Remise à zéro de la démo (étape 15) : un pied de page discret, en bas à
-   droite. Texte petit et gris ; le bouton secondaire garde la hauteur des
-   boutons (64 px au toucher, 44 px à la souris). Sur téléphone, sous le
-   panneau, aligné à droite ; la phrase peut passer au-dessus du bouton. */
+   droite. Texte petit et gris ; le bouton garde la hauteur des boutons (64 px
+   à la tablette, 48 px au téléphone, 44 px à la souris). Sur téléphone, sous
+   le panneau, centrée ; la phrase passe au-dessus du bouton. */
 .demo-reset {
     display: flex;
     flex-direction: column;
@@ -200,6 +207,21 @@
 
 .demo-reset-row p {
     margin: 0;
+}
+
+/* « Réinitialiser la démo » : plus sobre qu'un bouton secondaire, qui
+   serait blanc à bordure épaisse. Sans fond, une bordure fine et grise
+   (3,3:1 sur le crème), le texte gris comme la phrase. Au survol, un voile
+   blanc translucide et le texte en bleu nuit : un effet léger. */
+.demo-reset-button {
+    border: 1px solid var(--color-border-strong);
+    background: transparent;
+    color: var(--color-muted);
+    transition: background-color 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.demo-reset-button:active {
+    background: rgba(255, 255, 255, 0.5);
 }
 
 /* Message de succès dans le coin, au-dessus du bouton. */
@@ -265,6 +287,19 @@
 
     .demo-reset-row {
         flex-wrap: nowrap;
+    }
+}
+
+/* Téléphone : la zone, sa confirmation et son message, centrés sous le
+   panneau. */
+@media (max-width: 39.99rem) {
+    .demo-reset {
+        align-items: center;
+        text-align: center;
+    }
+
+    .demo-reset-row {
+        justify-content: center;
     }
 }
 

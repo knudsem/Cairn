@@ -96,7 +96,8 @@
 }
 
 /* Boutons adaptés à Cairn : 64 px de haut, utilisables avec des gants, texte
-   crème sur bleu nuit (contraste 12,6:1). Variables définies dans app.css. */
+   crème sur bleu nuit (contraste 12,6:1). Variables définies dans app.css.
+   Sur téléphone, 48 px, comme les autres boutons (fin du fichier). */
 #components-reconnect-modal button {
     min-height: 4rem;
     padding: 0 2rem;
@@ -158,5 +159,12 @@
         width: 80px;
         height: 80px;
         opacity: 0;
+    }
+}
+
+/* Téléphone tactile : 48 px, comme les autres boutons (app.css, étape 15). */
+@media (pointer: coarse) and (max-width: 30rem) {
+    #components-reconnect-modal button {
+        min-height: 3rem;
     }
 }
