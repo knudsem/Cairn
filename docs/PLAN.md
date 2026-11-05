@@ -720,7 +720,7 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 
 **Cible, vérifiée le 3 novembre 2026 sur les documentations officielles :**
 
-- **Render, offre gratuite**, pour `api` et `web` : deux services web Docker construits depuis le dépôt GitHub, région Frankfurt, 0,1 CPU et 512 Mo de mémoire chacun. Render accepte les WebSockets, sans durée maximale : Blazor Server fonctionne, sans affinité de session puisqu'il n'y a qu'une instance. HTTPS automatique (Render termine le TLS et transmet du HTTP au conteneur).
+- **Render, offre gratuite**, pour `api` et `web` : deux services web Docker construits depuis le dépôt GitHub, région Frankfurt, 0,1 CPU et 512 Mo de mémoire chacun. Render accepte les WebSockets, sans durée maximale : Blazor Server fonctionne, sans affinité de session puisqu'il n'y a qu'une instance. HTTPS automatique (Render termine le TLS et transmet du HTTP au conteneur). Depuis l'étape 11 ter : un seul service, dont le conteneur fait tourner l'API et l'interface.
 - **Neon, offre gratuite**, pour la base : PostgreSQL 18 (même version majeure qu'en local), région AWS Francfort, sans carte bancaire et sans expiration.
 - **Base gratuite de Render écartée :** elle expire 30 jours après sa création (puis 14 jours de grâce, puis suppression), sans sauvegarde, une seule par compte.
 
@@ -728,14 +728,14 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 
 - un service s'endort après 15 minutes sans trafic entrant (requêtes HTTP ou messages WebSocket) et met environ une minute à se réveiller ; le navigateur voit pendant ce temps une page d'attente de Render. Ce que reçoit un client qui n'est pas un navigateur (l'interface qui appelle l'API) n'est pas documenté. Mesuré le 4 novembre (étape 11 bis) : un client extérieur sans en-têtes de navigateur est retenu pendant le réveil, puis reçoit la vraie réponse ; mais l'interface, hébergée chez Render, reçoit un 502 et ne réveille pas l'API ;
 - 750 heures gratuites par mois pour tout le compte, partagées entre les deux services ; épuisées, elles suspendent tout jusqu'au mois suivant. Deux services éveillés en permanence les épuisent vers le 16e jour ;
-- un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement : n'importe qui peut valider des lignes ou créer des profils, jusqu'à 20 (étape 7 bis). C'est la conséquence assumée de l'absence d'authentification ; la remise à zéro ramène les données et les trois profils d'origine ;
+- un service gratuit ne reçoit pas de trafic du réseau privé : l'interface appelle l'API par son URL publique HTTPS, et non par `http://api:8080` comme dans Compose. L'API est donc joignable publiquement : n'importe qui peut valider des lignes ou créer des profils, jusqu'à 20 (étape 7 bis). C'est la conséquence assumée de l'absence d'authentification ; la remise à zéro ramène les données et les trois profils d'origine. Depuis l'étape 11 ter, l'API n'écoute plus qu'à l'intérieur du conteneur : seule l'interface est publique ;
 - pas de commande « pre-deploy », de shell ni de tâche ponctuelle : le schéma et les données s'appliquent depuis le poste, avec psql ;
 - Neon endort la base après 5 minutes sans requête (réveil en quelques centaines de millisecondes, connexions coupées puis recréées par pgxpool) et accorde 100 heures de calcul (CU-heures) par mois, soit environ 400 heures avec la plus petite taille ;
 - sans `plan: free` explicite, Render crée un service payant ; sans `region: frankfurt`, il choisit l'Oregon, et la région ne change plus ensuite.
 
 **Fichiers :**
 
-- `render.yaml` (Blueprint), à la racine : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
+- `render.yaml` (Blueprint), à la racine (un seul service depuis l'étape 11 ter) : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
   - `cairn-knudsem-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
   - `cairn-knudsem-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API, avec `sync: false` : saisie à la création du Blueprint (`https://cairn-knudsem-api.onrender.com/`), puis corrigée dans le tableau de bord si Render a donné une autre adresse au service. `fromService` ne fournit que l'adresse privée, inutilisable par un service gratuit ; `RENDER_EXTERNAL_URL` n'existe qu'à l'exécution, dans le service lui-même. `ApiTimeoutSeconds=90`.
 - `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
@@ -758,8 +758,8 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 
 **Limiter l'effet de la mise en veille :**
 
-- le délai de 90 s, les nouveaux essais des lectures et le réveil de l'API par le navigateur (étape 11 bis) évitent une erreur pendant un réveil : l'API répond une quinzaine de secondes après l'appel du navigateur ;
-- pendant la période d'évaluation seulement : un ping gratuit planifié avec cron-job.org sur `https://<web>/` et `https://<api>/health`, toutes les 10 minutes, en semaine de 8 h à 20 h (Europe/Paris). Cela fait environ 2 × 12 h × 22 jours = 528 heures, sous les 750 heures du mois, et Neon reste loin de ses 100 CU-heures. Render ne publie pas clairement sa position sur ces pings : on les limite à la période d'évaluation et on les arrête ensuite ;
+- le délai de 90 s, les nouveaux essais des lectures et le réveil de l'API par le navigateur (étape 11 bis) évitent une erreur pendant un réveil : l'API répond une quinzaine de secondes après l'appel du navigateur. Le réveil par le navigateur peut être bloqué par une extension : remplacé à l'étape 11 ter par un seul service ;
+- pendant la période d'évaluation seulement : un ping gratuit planifié avec cron-job.org sur `https://<web>/` et `https://<api>/health` (depuis l'étape 11 ter : `https://<web>/` seulement, et aucun ping vers l'ancienne API), toutes les 10 minutes, en semaine de 8 h à 20 h (Europe/Paris). Cela fait environ 2 × 12 h × 22 jours = 528 heures, sous les 750 heures du mois, et Neon reste loin de ses 100 CU-heures. Render ne publie pas clairement sa position sur ces pings : on les limite à la période d'évaluation et on les arrête ensuite ;
 - un mot aux testeurs avec le lien : « le premier chargement peut prendre une minute ; une page d'attente s'affiche, c'est normal ».
 
 **Vérification sur le lien public :**
@@ -769,7 +769,7 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 - profils : vérifiés sur Neon, dont la configuration peut différer de l'image Docker (collation par défaut `C.UTF-8`) : la collation `fr-x-icu` existe (sinon `GET /api/pickers` renverrait 500), le tri place « Émile » avant « Ève » et « Jean-Yves » avant « Jeanne », `lower()` traite une lettre accentuée et l'index avec `normalize` refuse un doublon. Si le temps le permet, les tests Go sont lancés sur une base `cairn_test` créée sur Neon ;
 - après plus de 15 minutes sans visite : page d'attente de Render, puis l'application, sans « API injoignable » ; durée du réveil notée ;
 - remise à zéro avec `db/reset.sql`, puis rechargement : données de démonstration d'origine ;
-- journaux des deux services sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep -E "@ep-[a-z0-9]"` ne trouve rien (le nom d'hôte d'une chaîne Neon commence par `ep-`)).
+- journaux des deux services (d'un seul depuis l'étape 11 ter) sans erreur dans le tableau de bord Render ; aucun secret dans le dépôt (`git grep -E "@ep-[a-z0-9]"` ne trouve rien (le nom d'hôte d'une chaîne Neon commence par `ep-`)).
 
 **Documentation :** [offre gratuite de Render](https://render.com/docs/free), [spécification Blueprint](https://render.com/docs/blueprint-spec), [Docker sur Render](https://render.com/docs/docker), [WebSockets sur Render](https://render.com/docs/websocket), [port des services web](https://render.com/docs/web-services), [health checks](https://render.com/docs/health-checks), [offres Neon](https://neon.com/docs/introduction/plans), [cycle de vie d'une compute Neon](https://neon.com/docs/introduction/compute-lifecycle), [choisir sa connexion Neon](https://neon.com/docs/connect/choose-connection), [connexion sécurisée à Neon](https://neon.com/docs/connect/connect-securely), [changelog de pgx](https://github.com/jackc/pgx/blob/master/CHANGELOG.md), [FAQ de cron-job.org](https://cron-job.org/en/faq/)
 
@@ -795,6 +795,54 @@ Pas de route d'administration dans l'API pour cela : elle serait publique.
 **En ligne, après déploiement :** après plus de 15 minutes sans visite, `/pickers` montre la page de Render, puis « Cairn démarre », puis les profils, sans clic. Journaux de l'interface : « Réveil de l'API demandé au navigateur », quelques « l'API démarre (réponse 502 ...) », puis « réponse après N essais, en N s ».
 
 **Option à décider le 5 novembre :** un ping externe de la seule page d'accueil de l'interface pendant les jours d'évaluation (environ 264 heures sur 750, sans appel à l'API ni à Neon), pour éviter aussi la minute de réveil de l'interface elle-même.
+
+### Étape 11 ter : un seul service Render (1 h 30)
+
+**Le problème :** le 4 novembre au soir, le test à froid de l'étape 11 bis a échoué. Dans la console, chaque réveil par le navigateur affichait `net::ERR_BLOCKED_BY_CLIENT` : une extension de blocage l'arrêtait avant qu'il parte. Un visiteur peut avoir le même genre d'extension : un réveil qui dépend du navigateur n'est pas fiable. Et un appel de l'interface hébergée chez Render ne réveille pas l'API endormie (502, étape 11 bis).
+
+**La solution, sur Render seulement :** un seul service web, toujours nommé `cairn-knudsem-web` (même adresse), dont le conteneur fait tourner l'API Go et l'interface Blazor. Quand un visiteur ouvre le site, Render réveille ce service, et l'API démarre avec l'interface : plus aucun appel entre deux services Render. En local, rien ne change : `compose.yaml` garde `db`, `api` et `web` séparés.
+
+**Fichiers :**
+
+- `render/Dockerfile` : trois étapes, compilation de l'API (Go), compilation de l'interface (.NET), puis exécution sur l'image ASP.NET Core (Ubuntu, qui fournit bash), avec l'exécutable de l'API. Contexte de construction : la racine du dépôt.
+- `.dockerignore`, à la racine : liste blanche, seuls `api/`, `web/` et `render/start.sh` partent vers Docker (ni notes, ni `.env`, ni `.git`). Compose ne le lit pas : il construit depuis `api/` et `web/`.
+- `render/start.sh`, sans gestionnaire de processus :
+  - lance l'API sur `127.0.0.1:9000`, donc jamais joignable hors du conteneur, et l'interface sur le port `PORT` de Render ;
+  - écrit lui-même `ApiBaseUrl=http://127.0.0.1:9000/` et `ApiWakeUpFromBrowser=false`, car Render garde les anciennes variables du tableau de bord (`ApiBaseUrl` pointe encore vers l'ancien service) ;
+  - retire `DATABASE_URL` de l'environnement de l'interface, qui n'en a pas besoin : par hygiène, ce n'est pas une barrière, puisque les deux programmes tournent sous le même utilisateur ;
+  - refuse de démarrer sans `DATABASE_URL` : le déploiement échoue, et Render garde la version précédente en ligne ;
+  - à l'arrêt (SIGTERM), arrête d'abord l'interface, qui dépend de l'API, puis l'API : le conteneur ne tourne jamais avec une interface privée de son API. L'interface attend au plus 5 s la déconnexion des onglets ouverts (`DOTNET_SHUTDOWNTIMEOUTSECONDS=5`) ; par défaut, ASP.NET attend 30 s, autant que le délai de Render avant SIGKILL (mesuré : 31,8 s avec un onglet ouvert) ;
+  - si l'un des deux s'arrête, arrête l'autre et sort en erreur (`wait -n`). Le port se ferme, la sonde TCP de Render échoue, et Render redémarre l'instance après 60 s d'échec au plus. Un conteneur à moitié en marche garderait le port de l'interface ouvert : il passerait la sonde et ne serait jamais redémarré.
+- `render.yaml` : un seul service ; `dockerfilePath: ./render/Dockerfile`, `dockerContext: .`, `buildFilter` sur `api/**`, `web/**`, `render/**` et `.dockerignore` ; `PORT=10000`, la valeur par défaut de Render ; `DATABASE_URL` en `sync: false` ; `ApiTimeoutSeconds=30` au lieu de 90 : il n'y a plus de second service à attendre, seulement le démarrage de l'API dans le conteneur et le réveil de Neon.
+- Aucun changement de logique dans l'API, l'interface ou la base, ni dans les tests Go : seuls des commentaires de `web/Program.cs`, `web/Api/CairnApiClient.cs` et `web/Api/Models.cs` sont mis à jour (délai de 30 s, réveil par le navigateur coupé). Les nouveaux essais des lectures (étape 11 bis) couvrent les quelques secondes de démarrage de l'API. Le réveil par le navigateur reste dans le code, coupé sur Render et dans Compose : à supprimer lors de la relecture finale si l'étape tient en ligne.
+
+**Ce que dit la documentation de Render (vérifié le 5 novembre) :**
+
+- une modification du Blueprint ne supprime jamais un service (« Changes to a Blueprint never cause a resource to be deleted ») : `cairn-knudsem-api`, retiré de `render.yaml`, reste en place, détaché du Blueprint, jusqu'à sa suppression à la main ;
+- une variable `sync: false` n'est demandée qu'à la création du Blueprint, puis ignorée : `DATABASE_URL` se saisit à la main sur `cairn-knudsem-web` ;
+- une variable retirée de `render.yaml` est conservée sur le service : d'où les réglages écrits dans `start.sh` ;
+- un service web doit écouter sur `0.0.0.0` (10000 par défaut), et Render n'envoie le trafic public qu'à un seul port ;
+- si la nouvelle version ne démarre pas, la précédente continue de servir ; à l'arrêt, SIGTERM, puis SIGKILL 30 s plus tard ;
+- sonde TCP par défaut sur le port public : après 15 s d'échec, plus de trafic vers l'instance ; après 60 s, redémarrage automatique (page « health checks ») ;
+- 750 heures gratuites par mois : un seul service éveillé en permanence en consomme 744 au plus (mois de 31 jours).
+
+**Vérification locale**, sur une image construite comme Render la construira (même `dockerfilePath`, même contexte, `--no-cache`), depuis une copie du dépôt qui ne contient que les fichiers suivis et ceux du commit, lancée avec les variables de `render.yaml`, une ancienne `ApiBaseUrl` restée dans le tableau de bord, 0,1 CPU et 512 Mo comme l'offre gratuite :
+
+- isolement : l'API n'écoute que sur `127.0.0.1:9000` et reste injoignable depuis un autre conteneur ; l'interface écoute sur le port 10000 ; l'ancienne `ApiBaseUrl` est remplacée ; la chaîne de connexion n'apparaît ni dans l'environnement de l'interface ni dans les journaux ;
+- arrêts : `docker stop` avec un onglet ouvert, l'interface puis l'API, code 0 en 7 s environ (l'interface attend au plus 5 s les onglets ouverts), loin des 30 s de Render avant SIGKILL ; l'un des deux programmes tué (SIGTERM ou SIGKILL), conteneur arrêté en code 1 ; sans `DATABASE_URL`, refus de démarrer ;
+- démarrages à froid répétés, conteneur relancé ou recréé : profils affichés sans clic et sans encadré d'erreur, en 9 à 15 s environ à 0,1 CPU. Le réveil de Neon se vérifie en ligne, au premier démarrage à froid ;
+- parcours complets répétés, dont deux préparateurs qui valident en même temps le même stock (une seule validation passe) et 20 validations simultanées de la dernière unité (une seule acceptée) ;
+- mémoire : environ 160 Mo de mémoire résidente pour les deux programmes après des parcours (interface 140, API 16), loin des 512 Mo ;
+- en local, rien ne change : `compose.yaml`, l'API et la base sont intacts, l'interface ne change que par des commentaires ; tests Go et compilation verts.
+
+**Mise en ligne, dans cet ordre :**
+
+1. avant le push, dans le tableau de bord, service `cairn-knudsem-web`, Environment : ajouter `DATABASE_URL` (la chaîne directe de Neon, la même que sur `cairn-knudsem-api`) ;
+2. commit et push : le Blueprint se synchronise, détache `cairn-knudsem-api` et reconstruit `cairn-knudsem-web` avec la nouvelle image ;
+3. vérification en ligne, dont un démarrage à froid après plus de 15 minutes sans visite ;
+4. seulement ensuite, supprimer `cairn-knudsem-api` (Settings, Delete Web Service), ce qui retire aussi sa copie de la chaîne Neon, et dans la foulée la variable `ApiBaseUrl` de `cairn-knudsem-web`. D'ici là, l'ancien service dort sans consommer d'heures, et permet de revenir en arrière (revert du commit). Les deux ensemble : une fois le nom `cairn-knudsem-api` libéré, n'importe qui peut le reprendre, et un retour en arrière de `cairn-knudsem-web` vers l'ancienne image lui enverrait les appels ; sans `ApiBaseUrl`, cette ancienne image refuse de démarrer.
+
+**Comparaison avec un ping externe gratuit :** un ping de GitHub Actions ou de cron-job.org ne corrige pas la cause : dès qu'il manque un passage (les tâches planifiées de GitHub Actions peuvent prendre des dizaines de minutes de retard), l'API se rendort et le 502 revient. De plus, l'API n'a pas de route sans base (`/health` interroge Neon), et deux services éveillés en permanence épuisent les 750 heures vers le 16e jour. Le service unique corrige la cause ; un ping de la page d'accueil, pendant les jours d'évaluation, resterait possible en plus, pour éviter la minute de réveil.
 
 ### Étape 12 : README, capture d'écran, vidéo de démonstration (1 h 30)
 

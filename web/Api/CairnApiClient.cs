@@ -81,11 +81,12 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
     /// <summary>
     /// Lecture (GET), réessayée tant que l'API démarre (Starting) ou ne répond
     /// pas (Unreachable), toutes les <see cref="RetryDelay"/>. Le délai
-    /// configuré (http.Timeout : 90 s sur Render, 5 s en local) borne la
+    /// configuré (http.Timeout : 30 s sur Render, 5 s en local) borne la
     /// lecture entière, essais et attentes compris : passé ce délai, le
     /// dernier échec est rendu à la page. Avant chaque attente, onStarting
-    /// prévient la page : elle affiche « Cairn démarre » et fait réveiller
-    /// l'API par le navigateur (ApiWakeUp). Une lecture peut être renvoyée
+    /// prévient la page : elle affiche « Cairn démarre » et demande le réveil
+    /// par le navigateur (ApiWakeUp), sans effet s'il est coupé, comme sur
+    /// Render et dans Compose. Une lecture peut être renvoyée
     /// sans risque : elle ne change rien. Un essai coupé par le délai rend
     /// l'échec de l'essai précédent, plus parlant qu'une simple annulation.
     /// </summary>

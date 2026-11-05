@@ -17,9 +17,10 @@ var apiBaseUrl = new Uri(builder.Configuration["ApiBaseUrl"]
     ?? throw new InvalidOperationException("La configuration ApiBaseUrl est manquante."));
 // Délai maximal d'un appel à l'API : 5 secondes par défaut, car le délai de
 // HttpClient (100 secondes) est bien trop long sur une tablette. En ligne
-// (Render, docs/PLAN.md étapes 11 et 11 bis), ApiTimeoutSeconds vaut 90 : une
-// API endormie met du temps à se réveiller. Pour une lecture, ce délai couvre
-// tous les essais (CairnApiClient.GetAsync).
+// (Render, docs/PLAN.md étapes 11 à 11 ter), ApiTimeoutSeconds vaut 30 : il
+// couvre le démarrage de l'API, lancée dans le même conteneur, et le réveil
+// de la base Neon. Pour une lecture, ce délai couvre tous les essais
+// (CairnApiClient.GetAsync).
 var apiTimeout = TimeSpan.FromSeconds(builder.Configuration.GetValue("ApiTimeoutSeconds", 5));
 builder.Services.AddHttpClient<CairnApiClient>(client =>
 {
@@ -27,12 +28,15 @@ builder.Services.AddHttpClient<CairnApiClient>(client =>
     client.Timeout = apiTimeout;
 });
 
-// Réveil de l'API par le navigateur (Api/ApiWakeUp.cs), avec l'adresse de
-// /health tirée d'ApiBaseUrl. « Scoped » : une instance par circuit. Actif
-// par défaut ; compose.yaml le coupe (ApiWakeUpFromBrowser=false) : le
-// navigateur ne peut pas joindre http://api:8080/, nom connu seulement à
-// l'intérieur de Docker, et chaque appel laisserait une erreur dans sa
-// console. En local, l'API ne s'endort pas.
+// Réveil de l'API par le navigateur (Api/ApiWakeUp.cs, étape 11 bis), avec
+// l'adresse de /health tirée d'ApiBaseUrl. « Scoped » : une instance par
+// circuit. Actif par défaut, mais coupé partout où Cairn est déployé
+// (ApiWakeUpFromBrowser=false) :
+// - dans compose.yaml : le navigateur ne peut pas joindre http://api:8080/,
+//   nom connu seulement à l'intérieur de Docker ;
+// - sur Render, par render/start.sh : l'API démarre avec l'interface, dans
+//   le même conteneur (étape 11 ter).
+// Il ne reste actif qu'avec dotnet run, où l'API ne s'endort pas.
 var wakeUpUrl = builder.Configuration.GetValue("ApiWakeUpFromBrowser", true) ? new Uri(apiBaseUrl, "health") : null;
 builder.Services.AddScoped(services => new ApiWakeUp(
     services.GetRequiredService<IJSRuntime>(),

@@ -96,9 +96,9 @@ public enum ApiErrorKind
 
     /// <summary>
     /// L'API démarre : un intermédiaire répond à sa place, par un code 502,
-    /// 503 ou 504, ou par une réponse qui n'est pas du JSON (page HTML). Sur
-    /// Render, l'interface reçoit un 502 tant que l'API dort (docs/PLAN.md,
-    /// étape 11 bis).
+    /// 503 ou 504, ou par une réponse qui n'est pas du JSON (page HTML). Avec
+    /// deux services sur Render, l'interface recevait un 502 tant que l'API
+    /// dormait (docs/PLAN.md, étapes 11 bis et 11 ter).
     /// </summary>
     Starting,
 

@@ -1,0 +1,18 @@
+# Contexte de construction de render/Dockerfile, la racine du dépôt
+# (docs/PLAN.md, étape 11 ter). Sert seulement à cette image : compose.yaml
+# construit api/ et web/ depuis leur propre dossier (web/ a son propre
+# .dockerignore).
+#
+# Liste blanche : tout est exclu (*), puis seuls les fichiers utiles sont
+# repris (!). Les notes personnelles, .env et .git ne partent donc jamais
+# vers Docker.
+*
+!api/
+!web/
+!render/start.sh
+
+# Résultats de compilation du poste : l'image recompile tout elle-même.
+api/api
+api/api.exe
+web/bin/
+web/obj/
