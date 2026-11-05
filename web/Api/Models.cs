@@ -5,7 +5,7 @@ namespace Cairn.Web.Api;
 
 /// <summary>
 /// Profil de préparateur, tel que l'API l'envoie :
-/// {"id": 1, "name": "Mathias", "createdAt": "2026-11-04T07:00:00Z"}.
+/// {"id": 1, "name": "Claire", "createdAt": "2026-11-04T07:00:00Z"}.
 /// </summary>
 /// <remarks>
 /// Un record est une classe de données : ses propriétés sont fixées à la

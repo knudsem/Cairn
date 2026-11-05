@@ -74,14 +74,14 @@ func TestListPickersRoute(t *testing.T) {
 		t.Errorf("sans profil : corps %s, attendu []", strings.TrimSpace(rec.Body.String()))
 	}
 
-	for _, name := range []string{"Virginie", "Mathias", "Romain"} {
+	for _, name := range []string{"Virginie", "Claire", "Romain"} {
 		if rec := postPicker(t, `{"name": "`+name+`"}`); rec.Code != http.StatusCreated {
 			t.Fatalf("création de %s : code %d (corps : %s)", name, rec.Code, rec.Body)
 		}
 	}
 	rec = get(t, "/api/pickers")
 	decodeJSON(t, rec, &pickers)
-	want := []pickerJSON{{ID: 302, Name: "Mathias"}, {ID: 303, Name: "Romain"}, {ID: 301, Name: "Virginie"}}
+	want := []pickerJSON{{ID: 302, Name: "Claire"}, {ID: 303, Name: "Romain"}, {ID: 301, Name: "Virginie"}}
 	if len(pickers) != len(want) {
 		t.Fatalf("%d profils, attendu %d", len(pickers), len(want))
 	}
@@ -149,13 +149,13 @@ func TestCreatePickerAcceptedNames(t *testing.T) {
 // enregistré, et 409 trop_de_profils à partir de 20 profils.
 func TestCreatePickerConflicts(t *testing.T) {
 	setup(t)
-	for _, name := range []string{"Mathias", "Jean Pierre"} {
+	for _, name := range []string{"Claire", "Jean Pierre"} {
 		if rec := postPicker(t, `{"name": "`+name+`"}`); rec.Code != http.StatusCreated {
 			t.Fatalf("création de %s : code %d (corps : %s)", name, rec.Code, rec.Body)
 		}
 	}
 	for _, c := range []struct{ name, message string }{
-		{"mathias", "Le profil « Mathias » existe déjà."},
+		{"claire", "Le profil « Claire » existe déjà."},
 		{"Jean  Pierre", "Le profil « Jean Pierre » existe déjà."},
 	} {
 		if got := checkError(t, postPicker(t, `{"name": "`+c.name+`"}`), http.StatusConflict, "profil_existant"); got != c.message {

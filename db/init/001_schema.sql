@@ -52,7 +52,7 @@ CREATE TABLE pickers (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS » ne
+-- Unicité sans tenir compte des majuscules : « Claire » et « CLAIRE » ne
 -- peuvent pas coexister. normalize(name, NFC) ramène d'abord les deux façons
 -- d'écrire une lettre accentuée (« é » en un caractère, ou « e » suivi de
 -- l'accent) à la même forme : sinon, deux « Émile » identiques à l'écran

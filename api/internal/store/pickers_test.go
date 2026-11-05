@@ -89,12 +89,12 @@ func TestListPickersSortedByName(t *testing.T) {
 // l'identique : identifiant, nom, date de création en UTC.
 func TestCreatePicker(t *testing.T) {
 	resetDB(t)
-	p, err := st.CreatePicker(t.Context(), "Mathias")
+	p, err := st.CreatePicker(t.Context(), "Claire")
 	if err != nil {
 		t.Fatalf("CreatePicker : %v", err)
 	}
-	if p.ID != 301 || p.Name != "Mathias" || p.CreatedAt.IsZero() || p.CreatedAt.Location() != time.UTC {
-		t.Errorf("profil créé %+v, attendu l'identifiant 301, le nom Mathias et une date en UTC", p)
+	if p.ID != 301 || p.Name != "Claire" || p.CreatedAt.IsZero() || p.CreatedAt.Location() != time.UTC {
+		t.Errorf("profil créé %+v, attendu l'identifiant 301, le nom Claire et une date en UTC", p)
 	}
 
 	pickers, err := st.ListPickers(t.Context())
@@ -118,16 +118,16 @@ var emileNFD = "E" + string(rune(0x301)) + "mile"
 // accent est un autre nom ; « _ » et « % » sont des caractères ordinaires.
 func TestCreatePickerRefusesExistingName(t *testing.T) {
 	resetDB(t)
-	for _, name := range []string{"Mathias", "Émile", "Test"} {
+	for _, name := range []string{"Claire", "Émile", "Test"} {
 		if _, err := st.CreatePicker(t.Context(), name); err != nil {
 			t.Fatalf("création de %q : %v", name, err)
 		}
 	}
 
 	for _, c := range []struct{ label, name, existing string }{
-		{"identique", "Mathias", "Mathias"},
-		{"minuscules", "mathias", "Mathias"},
-		{"majuscules", "MATHIAS", "Mathias"},
+		{"identique", "Claire", "Claire"},
+		{"minuscules", "claire", "Claire"},
+		{"majuscules", "CLAIRE", "Claire"},
 		{"majuscule accentuée", "ÉMILE", "Émile"},
 		{"minuscule accentuée", "émile", "Émile"},
 		{"accent écrit en deux caractères", emileNFD, "Émile"},
@@ -294,9 +294,9 @@ func TestCreatePickerConcurrentSameName(t *testing.T) {
 // ErrPickerNotFound.
 func TestDeletePicker(t *testing.T) {
 	resetDB(t)
-	mathias, err := st.CreatePicker(t.Context(), "Mathias")
+	claire, err := st.CreatePicker(t.Context(), "Claire")
 	if err != nil {
-		t.Fatalf("création de Mathias : %v", err)
+		t.Fatalf("création de Claire : %v", err)
 	}
 	test, err := st.CreatePicker(t.Context(), "Test")
 	if err != nil {
@@ -310,8 +310,8 @@ func TestDeletePicker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListPickers : %v", err)
 	}
-	if len(pickers) != 1 || pickers[0].ID != mathias.ID {
-		t.Errorf("profils restants %+v, attendu seulement Mathias (%d)", pickers, mathias.ID)
+	if len(pickers) != 1 || pickers[0].ID != claire.ID {
+		t.Errorf("profils restants %+v, attendu seulement Claire (%d)", pickers, claire.ID)
 	}
 
 	for _, id := range []int64{test.ID, 999} {

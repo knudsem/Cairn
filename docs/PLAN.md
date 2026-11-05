@@ -186,7 +186,7 @@ CREATE TABLE pickers (
     created_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Unicité sans tenir compte des majuscules : « Mathias » et « MATHIAS »
+-- Unicité sans tenir compte des majuscules : « Claire » et « CLAIRE »
 -- ne peuvent pas coexister. normalize(name, NFC) ramène d'abord les deux
 -- façons d'écrire une lettre accentuée à la même forme.
 CREATE UNIQUE INDEX pickers_name_key ON pickers (lower(normalize(name, NFC)));
@@ -295,7 +295,7 @@ Avec l'étape 1, B attend avant de commencer : toutes ses instructions voient le
 
 Une dizaine de produits, avec des emplacements numérotés sur deux chiffres (`A-03-2`). Le tri alphabétique des emplacements suit alors l'ordre physique de l'allée : les lignes d'une commande sont présentées dans l'ordre du chemin de prélèvement.
 
-Trois profils de préparateurs (étape 7 bis), insérés dans cet ordre : « Mathias », « Virginie », « Romain ». L'ordre d'insertion diffère de l'ordre alphabétique (Mathias, Romain, Virginie) : un tri oublié se verrait.
+Trois profils de préparateurs (étape 7 bis), insérés dans cet ordre : « Claire », « Virginie », « Romain ». L'ordre d'insertion diffère de l'ordre alphabétique (Claire, Romain, Virginie) : un tri oublié se verrait.
 
 **Remise à zéro de la démonstration** (locale), en une seule transaction, qui remet exactement ces données, les trois profils compris :
 
@@ -354,12 +354,12 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
   ]
 }
 
-// POST /api/orders/1/lines/3/pick, corps : { "picker": "Mathias" }
+// POST /api/orders/1/lines/3/pick, corps : { "picker": "Claire" }
 // Réponse : la commande mise à jour, au même format.
 
 // GET /api/pickers : les profils, triés par nom
 [
-  { "id": 1, "name": "Mathias", "createdAt": "2026-11-04T07:00:00Z" },
+  { "id": 1, "name": "Claire", "createdAt": "2026-11-04T07:00:00Z" },
   { "id": 3, "name": "Romain", "createdAt": "2026-11-04T07:00:00Z" },
   { "id": 2, "name": "Virginie", "createdAt": "2026-11-04T07:00:00Z" }
 ]
@@ -619,14 +619,14 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - `GET /api/pickers` : 200 et la liste, `[]` si elle est vide ;
   - `POST /api/pickers`, corps `{"name": "..."}` : mêmes règles que le nom du préparateur à l'étape 7 (Content-Type, taille, champ inconnu, espaces retirés, obligatoire, 50 caractères, caractères autorisés, au moins une lettre ou un chiffre). Le code de validation de l'étape 7 devient commun aux deux routes, dans `httpapi/body.go` ; sa réorganisation est couverte par les tests de l'étape 7, dont les messages attendus n'ont pas changé. Règle ajoutée pour les deux routes : les espaces ordinaires répétées à l'intérieur d'un nom sont réduites à une seule, car une page web les affiche comme une seule (« Jean  Pierre » et « Jean Pierre » seraient deux profils identiques à l'écran). Réponse 201 et le profil créé, sans en-tête `Location` (section 4.4) ; 409 `profil_existant` ou `trop_de_profils` (section 4.3).
 - **Tests, sur la base de test :**
-  - store : tri par nom (majuscules, accents, « Jean-Yves » et « Jeanne »), liste vide `[]`, création, doublon sans tenir compte des majuscules ni de l'écriture de l'accent (« mathias » face à « Mathias », « ÉMILE » et « Émile » écrit avec l'accent combinant face à « Émile »), noms proches acceptés (« Emile », « T_st », « Te% »), limite (le 20e profil passe, le 21e est refusé) ;
+  - store : tri par nom (majuscules, accents, « Jean-Yves » et « Jeanne »), liste vide `[]`, création, doublon sans tenir compte des majuscules ni de l'écriture de l'accent (« claire » face à « Claire », « ÉMILE » et « Émile » écrit avec l'accent combinant face à « Émile »), noms proches acceptés (« Emile », « T_st », « Te% »), limite (le 20e profil passe, le 21e est refusé) ;
   - filets de sécurité de la base, par des `INSERT` directs : un doublon (majuscules ou accent combinant) est refusé par l'index unique, un nom vide ou de 51 caractères par le `CHECK`, et 50 « é » passent ;
   - concurrence, sur 10 tours : avec 18 profils, 5 créations simultanées donnent exactement 2 succès et 3 refus ; le même nom créé 5 fois en même temps, dans des casses différentes, donne 1 succès et 4 `profil_existant` ;
   - HTTP : 200, 201 (le profil a exactement les champs `id`, `name` et `createdAt`), noms acceptés à la limite (50 « é », espaces doublées réduites), 400 (chaque règle du nom, comme à l'étape 7), 409 `profil_existant` et `trop_de_profils`, 500 sans détail technique, 405 pour une autre méthode, format JSON des erreurs ;
   - `testdb` : un `lock_timeout` de 5 s sur les connexions des tests, pour qu'un verrou jamais relâché fasse échouer un test au lieu de le bloquer ;
   - contrôle par mutations, comme aux étapes 6 et 7 : 43 mutations, toutes détectées. 38 touchent le code (dont le retrait du `LOCK TABLE`, du `COLLATE` ou de `normalize`, une recherche par `ILIKE`, un nom de champ JSON en majuscule, l'oubli du `Rollback`) et 5 le schéma, chargé dans une base jetable (index sans `normalize`, sensible à la casse ou retiré, `CHECK` en octets ou retiré).
 - **Notions Go et SQL :** `LOCK TABLE` et ses modes de verrou, index sur une expression, normalisation Unicode (NFC), collation ICU, réponse 201 Created.
-- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Mathias, Romain, Virginie ; la création de « Test » renvoie 201 ; « mathias » renvoie 409 `profil_existant` ; « Jean   Pierre » est enregistré « Jean Pierre » ; après la remise à zéro, les trois profils d'origine reviennent.
+- **Vérification (`curl.exe`) :** `GET /api/pickers` donne Claire, Romain, Virginie ; la création de « Test » renvoie 201 ; « claire » renvoie 409 `profil_existant` ; « Jean   Pierre » est enregistré « Jean Pierre » ; après la remise à zéro, les trois profils d'origine reviennent.
 
 #### 7 bis.2 : écran « Qui prépare ? » (1 h 30)
 
@@ -638,7 +638,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - barre du haut (`MainLayout`) : le nom du profil et un bouton « Changer », qui oublie le profil et ramène à « Qui prépare ? », puis à la page en cours une fois un profil choisi. Sur téléphone, l'icône seule remplace alors le logo complet, pour laisser la place au nom ;
   - premier écran qui lit l'API, il pose les bases du client que reprennent les étapes 8 et 9 : chemins relatifs dans `CairnApiClient` ; chaque appel renvoie un `ApiResult<T>`, la valeur ou la raison de l'échec (API injoignable ou délai dépassé, refus de l'API avec son code et son message, réponse inattendue), sans exception qui couperait le circuit Blazor ; JSON d'une erreur lu seulement si la réponse est de type `application/json` ; JSON lu strictement (un champ absent ou `null` à tort donne une réponse inattendue) ; état de chargement, message et bouton « Réessayer » si l'API ne répond pas.
 - **Notions C# et Blazor :** service « scoped », `NavigationManager`, `[SupplyParameterFromQuery]`, `@bind`, `@ref` et `FocusAsync`, rendu conditionnel, `record`, expression `switch` sur des propriétés, lecture du code HTTP.
-- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Mathias, Romain et Virginie ; après la création de « Test », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Test » et « Changer » ; « mathias » affiche « Ce profil existe déjà » ; « Changer » ramène à « Qui prépare ? » ; API arrêtée, l'encadré d'erreur et « Réessayer » ; après la remise à zéro et un rechargement, les trois profils d'origine. Vérifié aussi dans Edge avec Playwright, en 1440 x 900, 820 x 1180 et 390 x 844.
+- **Vérification :** http://localhost:8081 renvoie vers « Qui prépare ? », avec Claire, Romain et Virginie ; après la création de « Test », l'accueil s'ouvre (la liste des commandes à partir de l'étape 8) et la barre du haut affiche « Test » et « Changer » ; « claire » affiche « Ce profil existe déjà » ; « Changer » ramène à « Qui prépare ? » ; API arrêtée, l'encadré d'erreur et « Réessayer » ; après la remise à zéro et un rechargement, les trois profils d'origine. Vérifié aussi dans Edge avec Playwright, en 1440 x 900, 820 x 1180 et 390 x 844.
 - **Documentation :** [injection de dépendances dans Blazor](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/dependency-injection), [navigation](https://learn.microsoft.com/aspnet/core/blazor/fundamentals/navigation), [liaison de données](https://learn.microsoft.com/aspnet/core/blazor/components/data-binding), [LOCK](https://www.postgresql.org/docs/18/sql-lock.html), [index sur une expression](https://www.postgresql.org/docs/18/indexes-expressional.html), [collations](https://www.postgresql.org/docs/18/collation.html)
 
 ### Étape 8 : écran liste des commandes (1 h 15)
@@ -672,7 +672,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
   - après une validation : bandeau « ✓ 3 pris à B-07-2 » (étape 14), qui reçoit le focus ; la carte de la liste suit (statut, avancement) sans recharger la liste ;
   - commande prête : bandeau de statut « Commande prête », boutons « Commande suivante » (la plus ancienne commande qui n'est pas prête) et « Retour aux commandes » (masqué en deux panneaux depuis l'étape 14) ;
   - bouton désactivé pendant l'appel (« Validation... »), et garde côté serveur : un appui pendant un appel, ou dans les 700 ms qui suivent une validation ou l'ouverture d'une commande, est ignoré. Avec des gants, le second appui d'un double appui tomberait sinon sur le bouton de la ligne suivante, qui vient de prendre la place du premier ;
-  - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, qui décide du message : ligne préparée par ce profil (la validation a été enregistrée malgré l'erreur) ; « Ce produit a déjà été pris par Mathias. » ; sinon, l'erreur sous la ligne, avec « Réessayer » à la place de « C'est pris » : « Stock insuffisant : 2 disponibles, 5 demandés. Rien n'est enregistré et le stock n'a pas changé. Prévenez votre responsable. » (« Réessayer » en bouton secondaire), ou « Ce n'est peut-être pas enregistré : réessayez dans un instant. » si la commande n'a pas pu être relue (textes de l'étape 14) ;
+  - après toute réponse autre que 200 à la validation (409, 500, délai dépassé, coupure), rechargement de la commande, qui décide du message : ligne préparée par ce profil (la validation a été enregistrée malgré l'erreur) ; « Ce produit a déjà été pris par Claire. » ; sinon, l'erreur sous la ligne, avec « Réessayer » à la place de « C'est pris » : « Stock insuffisant : 2 disponibles, 5 demandés. Rien n'est enregistré et le stock n'a pas changé. Prévenez votre responsable. » (« Réessayer » en bouton secondaire), ou « Ce n'est peut-être pas enregistré : réessayez dans un instant. » si la commande n'a pas pu être relue (textes de l'étape 14) ;
   - une réponse arrivée après l'ouverture d'une autre commande est ignorée ;
   - nom du préparateur dans un élément `<bdi>`, pour qu'un nom écrit de droite à gauche ne dérange pas la phrase ; un nom long passe à la ligne.
 - **Notions C# et Blazor :**
@@ -686,7 +686,7 @@ Ajoutée le 4 novembre. Le préparateur choisit son profil dans une liste, ou cr
 - **Vérification :**
   - sur http://localhost:8081/orders/1, chaque validation change l'état de la carte, puis le bandeau « Commande prête » apparaît ;
   - sur CMD-0004, le message de stock insuffisant s'affiche ;
-  - deux fenêtres ouvertes sur CMD-0002, avec deux profils : la seconde validation est refusée, avec « Ce produit a déjà été pris par Mathias. » (texte de l'étape 14). La preuve formelle de concurrence reste le test 4 ;
+  - deux fenêtres ouvertes sur CMD-0002, avec deux profils : la seconde validation est refusée, avec « Ce produit a déjà été pris par Claire. » (texte de l'étape 14). La preuve formelle de concurrence reste le test 4 ;
   - vérifié aussi avec Playwright, aux trois formats : double appui ignoré, API suspendue pendant une validation puis « Réessayer », commande inexistante.
 - **Documentation :** [événements](https://learn.microsoft.com/aspnet/core/blazor/components/event-handling), [cycle de vie](https://learn.microsoft.com/aspnet/core/blazor/components/lifecycle), [programmation asynchrone](https://learn.microsoft.com/dotnet/csharp/asynchronous-programming/), [types nullables](https://learn.microsoft.com/dotnet/csharp/nullable-references)
 
@@ -879,7 +879,7 @@ Pour aller plus loin : [parcours Blazor de Microsoft Learn](https://learn.micros
 Le préparateur porte des cartons toute la journée et n'a pas le temps de lire : chaque carte se lit comme une consigne, de haut en bas (où aller, quoi prendre, combien, quoi vérifier), sans mot technique (ni « ligne », ni « SKU », ni « emplacement », ni « réf. »). Interface seulement : l'API, la base, les tests Go et la logique de validation ne changent pas.
 
 - Carte de la prochaine ligne : « À FAIRE MAINTENANT » (petit, en capitales par le CSS, gris) ; « Allez à » au-dessus de l'emplacement en très grand, avec « Allée B, rack 7, niveau 2 » dessous ; « Prenez » au-dessus de la quantité ; le nom du produit en titre ; « Vérifiez la référence sur l'étiquette : FIL-50 » ; « Stock actuel : 10 » en petit ; le bouton « C'est pris ».
-- Cartes suivantes : même vocabulaire, en compact, sous « À prendre ensuite (n) ». Cartes faites, sous « Déjà pris (n) » : le produit en titre, « 3 pris à B-07-2 », « ✓ Pris par Mathias à 12:24 ». Après une validation : « ✓ 3 pris à B-07-2 ».
+- Cartes suivantes : même vocabulaire, en compact, sous « À prendre ensuite (n) ». Cartes faites, sous « Déjà pris (n) » : le produit en titre, « 3 pris à B-07-2 », « ✓ Pris par Claire à 12:24 ». Après une validation : « ✓ 3 pris à B-07-2 ».
 - Avancement : « 1 / 3 produits pris », dans l'en-tête de la commande et sur les cartes de la liste. Les statuts ne changent pas.
 - « Commande prête » devient un bandeau de statut, et non plus un bloc qui ressemble à un bouton : fond vert clair, texte vert foncé, sans bordure, une coche dans un petit cercle, « Commande prête » en gras puis « Tous les produits ont été pris. ». `role="status"`, sans focus : le focus va sur « Commande suivante ».
 - Dernière commande : quand aucune autre commande n'est à préparer (liste chargée), pas de « Commande suivante », et le bandeau ajoute « Toutes les commandes sont prêtes. Bravo ! ». Le focus va alors sur le titre de la commande.

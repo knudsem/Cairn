@@ -63,9 +63,9 @@ INSERT INTO order_lines (order_id, product_id, quantity, picked_at, picked_by) V
     ((SELECT id FROM orders WHERE reference = 'CMD-0006'), (SELECT id FROM products WHERE sku = 'ADH-48'), 12, now() - interval '30 minutes', 'Virginie');
 
 -- Profils de préparateurs (docs/PLAN.md, étape 7 bis). L'ordre d'insertion
--- diffère de l'ordre alphabétique (Mathias, Romain, Virginie) : un tri oublié
+-- diffère de l'ordre alphabétique (Claire, Romain, Virginie) : un tri oublié
 -- dans l'API se verrait.
 INSERT INTO pickers (name) VALUES
-    ('Mathias'),
+    ('Claire'),
     ('Virginie'),
     ('Romain');

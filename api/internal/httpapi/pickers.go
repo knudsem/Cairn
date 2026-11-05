@@ -46,8 +46,8 @@ func (h *handlers) createPicker(w http.ResponseWriter, r *http.Request) {
 	case err == nil:
 		writeJSON(w, http.StatusCreated, picker)
 	case errors.As(err, &exists):
-		// Le message donne le nom tel qu'il est enregistré : « Mathias »
-		// pour une demande « mathias ».
+		// Le message donne le nom tel qu'il est enregistré : « Claire »
+		// pour une demande « claire ».
 		writeError(w, http.StatusConflict, codePickerExists,
 			fmt.Sprintf("Le profil « %s » existe déjà.", exists.Name))
 	case errors.Is(err, store.ErrTooManyPickers):

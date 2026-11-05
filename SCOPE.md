@@ -31,7 +31,7 @@ Principe directeur : **petit, fini, testé et bien expliqué**, plutôt que gros
 - Règle absolue : le stock ne devient jamais négatif, même si deux préparateurs valident en même temps.
 - Une ligne déjà préparée ne peut pas être validée une seconde fois.
 - Profils de préparateurs : liste des profils, création d'un profil (nom unique sans tenir compte des majuscules, 20 profils au maximum, même en cas de créations simultanées), choix d'un profil pour la session.
-- Données de démonstration chargées au démarrage, avec trois profils (« Mathias », « Virginie » et « Romain »), et remise à zéro qui les rétablit exactement.
+- Données de démonstration chargées au démarrage, avec trois profils (« Claire », « Virginie » et « Romain »), et remise à zéro qui les rétablit exactement.
 - Tests automatisés sur les règles métier.
 - Lancement complet en une commande avec Docker Compose.
 

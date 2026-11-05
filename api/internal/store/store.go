@@ -90,7 +90,7 @@ var (
 )
 
 // PickerExistsError précise ErrPickerExists avec le nom du profil existant,
-// tel qu'il est enregistré : « Mathias » pour une demande « mathias ».
+// tel qu'il est enregistré : « Claire » pour une demande « claire ».
 type PickerExistsError struct {
 	Name string
 }
