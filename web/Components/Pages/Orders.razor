@@ -130,6 +130,7 @@
             <OrderDetail OrderId="@OrderId.Value"
                          Customer="@(orders?.FirstOrDefault(o => o.Id == OrderId)?.Customer)"
                          NextOrderId="@NextOrderId"
+                         AllOthersReady="@(orders is not null && NextOrderId is null)"
                          OnOrderChanged="UpdateSummary" />
         }
     </section>

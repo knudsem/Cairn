@@ -17,7 +17,8 @@
     text-decoration: none;
 }
 
-/* Écran large : la liste est à gauche, le retour est inutile. */
+/* Écran large (deux panneaux, comme Orders.razor.css) : la liste est à
+   gauche, le retour est inutile. */
 @media (min-width: 64rem) {
     .back-link {
         display: none;
@@ -73,11 +74,14 @@
     box-shadow: var(--shadow-panel);
 }
 
+/* « À FAIRE MAINTENANT » : petit, en capitales, gris. */
 .line-kicker {
     margin: 0;
     color: var(--color-muted);
     font-size: var(--font-size-small);
     font-weight: 400;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
 }
 
 .line-main {
@@ -123,8 +127,8 @@
     color: var(--color-muted);
 }
 
-/* Le produit : son nom en titre, puis la référence et le stock, une
-   information par ligne. */
+/* Le produit : son nom en titre, puis la référence à vérifier et le stock,
+   une information par ligne. */
 .line-product {
     display: flex;
     flex-direction: column;
@@ -141,6 +145,13 @@
     font-size: var(--font-size-h2);
 }
 
+/* « Vérifiez la référence sur l'étiquette : FIL-50 » : une consigne, donc
+   en texte normal, avec la référence en gras. */
+.line-check {
+    overflow-wrap: anywhere;
+}
+
+/* « Stock actuel : 10 » : en petit et en gris. */
 .line-meta {
     color: var(--color-muted);
     font-size: var(--font-size-small);
@@ -166,7 +177,7 @@
     display: block;
 }
 
-/* Bouton « Préparé » des lignes suivantes : à droite sur un écran assez
+/* Bouton « C'est pris » des lignes suivantes : à droite sur un écran assez
    large, sur toute la largeur sur téléphone. */
 .line-button {
     align-self: flex-end;
@@ -189,20 +200,54 @@
     background: var(--color-white);
 }
 
+/* « Commande prête » : un bandeau de statut, et non un bouton (étape 14).
+   Fond vert clair, texte vert foncé, sans bordure (5,6:1) ; une coche dans
+   un petit cercle, le titre en gras, puis la phrase en poids normal. */
 .ready-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
     margin-bottom: 1rem;
     padding: 1rem 1.25rem;
     border-radius: var(--radius);
+    background: var(--color-ok-light);
+    color: var(--color-ok);
+}
+
+.ready-icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 1.75em;
+    height: 1.75em;
+    border-radius: 50%;
     background: var(--color-ok);
     color: var(--color-white);
+}
+
+.ready-icon svg {
+    width: 70%;
+    height: 70%;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.ready-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+}
+
+.ready-title {
     font-size: var(--font-size-h2);
-    font-weight: 700;
-    text-align: center;
+    line-height: 1.25;
 }
 
 .banner-success:focus,
-.banner-info:focus,
-.ready-banner:focus {
+.banner-info:focus {
     outline: var(--focus-outline);
     outline-offset: 2px;
 }
@@ -221,13 +266,25 @@
     text-decoration: none;
 }
 
-/* Titres des groupes : « À préparer ensuite », « Déjà préparées ». */
+/* Deux panneaux (à partir de 1024 px, comme Orders.razor.css et
+   « ← Commandes ») : la liste est déjà à gauche, et « Retour aux commandes »
+   ramènerait seulement au panneau vide « Choisissez une commande ». Même
+   spécificité que la règle au-dessus, et écrite après elle : elle l'emporte
+   sur son display: inline-flex. */
+@media (min-width: 64rem) {
+    .ready-actions .back-to-list {
+        display: none;
+    }
+}
+
+/* Titres des groupes : « À prendre ensuite », « Déjà pris ». */
 .section-title {
     margin: 1.75rem 0 0.75rem;
     font-size: var(--font-size-h2);
 }
 
-/* Lignes déjà préparées : cartes discrètes, une information par ligne. */
+/* Déjà pris : cartes discrètes, le produit en titre, puis « 3 pris à
+   B-07-2 » et « ✓ Pris par ... ». */
 .done-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
@@ -244,9 +301,10 @@
     background: var(--color-hover-light);
 }
 
-.done-location {
-    font-size: calc(var(--font-size-base) * 1.2);
-    font-weight: 800;
+.done-product {
+    margin-bottom: 0.125rem;
+    font-weight: 700;
+    line-height: 1.3;
 }
 
 .done-meta {
@@ -291,8 +349,8 @@
 }
 
 /* La colonne de gauche ne reste collée en haut que si la fenêtre est assez
-   haute pour la montrer en entier : sinon, le bouton « Préparé » sortirait
-   de l'écran. */
+   haute pour la montrer en entier : sinon, le bouton « C'est pris »
+   sortirait de l'écran. */
 @media (min-width: 80rem) and (min-height: 40rem) {
     .detail-main {
         position: sticky;

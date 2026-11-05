@@ -102,7 +102,7 @@ Les erreurs sont renvoyées dans un format JSON unique, par exemple `{ "error": 
 Écrans :
 1. **Qui prépare ?** : les profils en gros boutons, et un bouton « + Ajouter un profil » qui ouvre un champ « Nom du profil » avec les boutons « Créer » et « Annuler ». Le profil choisi est gardé pour la session ; la barre du haut affiche son nom et un bouton « Changer ». En bonus, un bouton « Gérer les profils » ouvre un mode gestion, où toucher un profil ouvre la confirmation de sa suppression dans la page.
 2. **Commandes** : liste des commandes, statut visible par une couleur et un libellé, la plus ancienne en premier.
-3. **Préparation d'une commande** : une carte par ligne avec le produit, la quantité en très grand, l'emplacement bien visible, et un gros bouton « Préparé ».
+3. **Préparation d'une commande** : une carte par ligne, qui se lit comme une consigne : « Allez à » et l'emplacement bien visible, « Prenez » et la quantité en très grand, le produit, la référence à vérifier sur l'étiquette, et un gros bouton « C'est pris ». Aucun mot technique à l'écran (ni « ligne », ni « emplacement », ni « réf. »).
 
 Règles d'ergonomie :
 - Sur écran tactile (tablette, téléphone), boutons d'au moins 64 px de haut, utilisables avec des gants ; à la souris (ordinateur), boutons de 40 à 48 px, avec la densité d'une application de bureau.

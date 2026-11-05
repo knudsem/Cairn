@@ -47,9 +47,12 @@ public static class Format
         _ => "todo",
     };
 
-    /// <summary>Avancement : « 1 / 3 lignes préparées », « 0 / 1 ligne préparée ».</summary>
+    /// <summary>
+    /// Avancement, sans mot technique (étape 14) : « 1 / 3 produits pris »,
+    /// « 0 / 1 produit pris ».
+    /// </summary>
     public static string Progress(int picked, int total) =>
-        $"{picked} / {total} {(total > 1 ? "lignes préparées" : "ligne préparée")}";
+        $"{picked} / {total} {(total > 1 ? "produits pris" : "produit pris")}";
 
     /// <summary>Avancement en pourcentage, pour la largeur de la barre.</summary>
     public static string Percent(int picked, int total) =>

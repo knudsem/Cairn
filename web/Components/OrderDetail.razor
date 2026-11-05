@@ -5,9 +5,11 @@
 @inject ApiWakeUp ApiWakeUp
 @inject NavigationManager Nav
 
-@* Préparation d'une commande (docs/PLAN.md, étapes 9 et 10 bis) : la
+@* Préparation d'une commande (docs/PLAN.md, étapes 9, 10 bis et 14) : la
    prochaine ligne mise en avant, les autres lignes à préparer, puis les
-   lignes déjà préparées.
+   lignes déjà préparées. Les textes affichés se lisent comme des consignes
+   (« Allez à », « Prenez », « C'est pris »), sans mot technique : ni
+   « ligne », ni « emplacement », ni « réf. ».
    Affiché par Orders.razor, à droite de la liste sur un écran large, à sa
    place sur un écran étroit. *@
 
@@ -84,16 +86,32 @@
             <div class="detail-main">
                 @* Messages après une validation. role="status" : un lecteur
                    d'écran les annonce ; tabindex="-1" permet d'y placer le
-                   focus. *@
+                   focus. Le bandeau « Commande prête » est un statut, pas un
+                   bouton : ni fond plein ni focus (étape 14). Le focus va sur
+                   « Commande suivante », ou sur le titre s'il n'y en a pas. *@
                 @if (ready)
                 {
-                    <div class="ready-banner" role="status" tabindex="-1" @ref="banner">✓ Commande prête</div>
+                    <div class="ready-banner" role="status">
+                        <span class="ready-icon" aria-hidden="true">
+                            <svg viewBox="0 0 12 12" focusable="false"><path d="M2.75 6.25l2.25 2.25 4.25-4.75" /></svg>
+                        </span>
+                        <span class="ready-text">
+                            <strong class="ready-title">Commande prête</strong>
+                            <span class="ready-sentence">Tous les produits ont été pris.</span>
+                            @if (AllOthersReady)
+                            {
+                                <span class="ready-sentence">Toutes les commandes sont prêtes. Bravo !</span>
+                            }
+                        </span>
+                    </div>
                     <div class="ready-actions">
                         @if (NextOrderId is { } next)
                         {
-                            <a class="button" href="orders/@next">Commande suivante</a>
+                            <a class="button" href="orders/@next" @ref="nextButton">Commande suivante</a>
                         }
-                        <a class="button button-secondary" href="./">Retour aux commandes</a>
+                        @* Inutile quand la liste est déjà à gauche (deux
+                           panneaux) : masqué par OrderDetail.razor.css. *@
+                        <a class="button button-secondary back-to-list" href="./">Retour aux commandes</a>
                     </div>
                 }
                 else if (success is not null)
@@ -114,7 +132,7 @@
             <div class="detail-side">
                 @if (toPick.Count > 1)
                 {
-                    <h2 class="section-title">À préparer ensuite (@(toPick.Count - 1))</h2>
+                    <h2 class="section-title">À prendre ensuite (@(toPick.Count - 1))</h2>
                     @foreach (var line in toPick.Skip(1))
                     {
                         @LineCard(line, false)
@@ -123,19 +141,20 @@
 
                 @if (picked.Count > 0)
                 {
-                    <h2 class="section-title">Déjà préparées (@picked.Count)</h2>
+                    <h2 class="section-title">Déjà pris (@picked.Count)</h2>
                     <div class="done-grid">
                         @foreach (var line in picked)
                         {
+                            @* Le produit en titre, puis « 3 pris à B-07-2 »,
+                               puis qui et quand. *@
                             <article class="done-card">
-                                <span class="done-location">@line.Location</span>
                                 <span class="done-product">@line.ProductName</span>
-                                <span class="done-meta">Quantité : @line.Quantity</span>
+                                <span class="done-meta">@line.Quantity pris à @line.Location</span>
                                 @* <bdi> isole le nom : un nom écrit de droite à
                                    gauche ne mélange pas l'ordre des mots. *@
                                 <span class="done-by">
                                     <span aria-hidden="true">✓</span>
-                                    Préparé par <bdi>@line.PickedBy</bdi>@(line.PickedAt is { } at ? $" à {Format.Time(at)}" : "")
+                                    Pris par <bdi>@line.PickedBy</bdi>@(line.PickedAt is { } at ? $" à {Format.Time(at)}" : "")
                                 </span>
                             </article>
                         }
@@ -163,6 +182,14 @@
     public long? NextOrderId { get; set; }
 
     /// <summary>
+    /// Vrai si la liste est chargée et qu'aucune autre commande n'est à
+    /// préparer : une fois celle-ci prête, « Toutes les commandes sont prêtes.
+    /// Bravo ! » remplace « Commande suivante » (étape 14).
+    /// </summary>
+    [Parameter]
+    public bool AllOthersReady { get; set; }
+
+    /// <summary>
     /// Appelé à chaque nouvel état de la commande (chargement, validation) :
     /// la liste met à jour son statut et son avancement.
     /// </summary>
@@ -185,7 +212,7 @@
     private string? errorDetail;
 
     // Garde contre le double appui : avec des gants, le second appui d'un
-    // double appui tomberait sur le bouton « Préparé » de la ligne suivante,
+    // double appui tomberait sur le bouton « C'est pris » de la ligne suivante,
     // qui vient de prendre la place du précédent. Tout appui avant cet
     // instant est ignoré.
     private DateTime ignorePicksUntil;
@@ -193,13 +220,16 @@
 
     // Focus à placer au prochain rendu : sur le titre à l'ouverture d'une
     // commande (Blazor ne le fait pas, le composant étant gardé d'une
-    // commande à l'autre), sur le bandeau après une validation.
+    // commande à l'autre), sur le bandeau après une validation, et sur
+    // « Commande suivante » quand la commande devient prête.
     private ElementReference title;
     private ElementReference banner;
     private ElementReference infoBanner;
+    private ElementReference nextButton;
     private bool focusTitle;
     private bool focusBanner;
     private bool focusInfo;
+    private bool focusNext;
 
     // Le composant est gardé quand l'adresse passe d'une commande à une
     // autre : seul OrderId change. La commande est alors rechargée, et les
@@ -218,27 +248,38 @@
         success = null;
         info = null;
         ClearLineError();
+        focusNext = false;
         focusTitle = true;
         await LoadAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (!focusTitle && !focusBanner && !focusInfo)
+        if (!focusTitle && !focusBanner && !focusInfo && !focusNext)
         {
             return;
         }
-        var target = focusBanner ? banner : focusInfo ? infoBanner : title;
+        // « Commande suivante » : Context est null tant que le bouton n'a
+        // jamais été affiché ; le drapeau attend alors le rendu qui l'affiche.
+        if (focusNext && !focusBanner && !focusInfo && nextButton.Context is null)
+        {
+            return;
+        }
+        var target = focusBanner ? banner : focusInfo ? infoBanner : focusNext ? nextButton : title;
         focusTitle = false;
         focusBanner = false;
         focusInfo = false;
+        focusNext = false;
         try
         {
             await target.FocusAsync();
         }
-        catch (JSException)
+        catch (Exception ex) when (ex is JSException or InvalidOperationException)
         {
-            // Un rendu suivant a pu retirer le bandeau entre-temps.
+            // Un rendu suivant a pu retirer l'élément entre-temps
+            // (JSException), ou il n'a jamais été affiché
+            // (InvalidOperationException). Sans ce try, l'exception
+            // couperait le circuit Blazor.
         }
     }
 
@@ -333,7 +374,7 @@
         if (result.IsSuccess)
         {
             await ShowAsync(result.Value);
-            Done($"Ligne préparée : {line.Location}");
+            Done(line);
             return;
         }
         success = null;
@@ -372,11 +413,11 @@
             if (current.PickedBy == picker.Name)
             {
                 // Notre validation a bien été enregistrée.
-                Done($"Ligne préparée : {line.Location}");
+                Done(line);
             }
             else
             {
-                info = $"Cette ligne a déjà été préparée par {current.PickedBy}.";
+                info = $"Ce produit a déjà été pris par {current.PickedBy}.";
                 // Le bouton appuyé a disparu avec la ligne : le focus va sur
                 // le message.
                 focusInfo = true;
@@ -384,53 +425,71 @@
             return;
         }
 
+        // Les messages de l'API qui parlent de « ligne » sont remplacés ici,
+        // d'après le code d'erreur, par un texte sans mot technique (étape
+        // 14). Celui du stock insuffisant (« Stock insuffisant : 2
+        // disponibles, 5 demandés. ») est repris tel quel.
         errorLineId = line.Id;
         if (error.Code == "stock_insuffisant")
         {
             errorTitle = error.Message;
-            errorDetail = "La ligne n'est pas validée et le stock n'a pas changé.";
+            errorDetail = "Rien n'est enregistré et le stock n'a pas changé.";
         }
         else if (error.Code == "deja_preparee")
         {
-            // Préparée entre-temps, mais la commande n'a pas pu être relue
-            // pour dire par qui.
-            errorTitle = error.UserMessage;
-            errorDetail = "La ligne est déjà validée. Rechargez la commande pour voir par qui.";
+            // Pris entre-temps, mais la commande n'a pas pu être relue pour
+            // dire par qui.
+            errorTitle = "Ce produit a déjà été pris.";
+            errorDetail = "Rechargez la commande pour voir par qui.";
         }
         else
         {
-            errorTitle = error.UserMessage;
+            errorTitle = error.Code == "ligne_introuvable" ? "Ce produit n'est plus dans la commande." : error.UserMessage;
             errorDetail = reload.IsSuccess || error.Kind == ApiErrorKind.Rejected && error.Status < 500
-                ? "La ligne n'est pas validée."
-                : "La validation n'a peut-être pas été enregistrée : réessayez dans un instant.";
+                ? "Rien n'est enregistré."
+                : "Ce n'est peut-être pas enregistré : réessayez dans un instant.";
         }
     }
 
-    // Fin d'une validation réussie : message, garde contre le double appui,
-    // focus sur le bandeau.
-    private void Done(string message)
+    // Fin d'une validation réussie : « ✓ 3 pris à B-07-2 », garde contre le
+    // double appui, puis le focus : sur ce message, ou, si la commande est
+    // prête, sur « Commande suivante » (sur son titre s'il n'y en a pas). Le
+    // bandeau « Commande prête » ne prend pas le focus (étape 14).
+    private void Done(OrderLine line)
     {
         pickingLineId = null;
-        success = message;
+        success = $"{line.Quantity} pris à {line.Location}";
         ignorePicksUntil = DateTime.UtcNow + DoubleTapDelay;
-        focusBanner = true;
+        if (order?.Status == OrderStatus.Ready)
+        {
+            focusNext = NextOrderId is not null;
+            focusTitle = NextOrderId is null;
+        }
+        else
+        {
+            focusBanner = true;
+        }
     }
 
     // Carte d'une ligne à préparer : la prochaine (isNext), en grand, ou une
     // des suivantes, plus compacte. Une information par ligne, avec son
     // étiquette. C'est un fragment de rendu : un morceau de page écrit en
     // Razor dans le code, comme une petite fonction qui renvoie du JSX en React.
+    // Étape 14 : la carte se lit comme une consigne, de haut en bas : où
+    // aller, quoi prendre, combien, quoi vérifier.
     private RenderFragment LineCard(OrderLine line, bool isNext) =>
         @<article class="line-card @(isNext ? "line-next" : null)"
-                  aria-label="@($"{line.ProductName}, emplacement {line.Location}, {line.Quantity} à prendre")">
+                  aria-label="@($"{line.ProductName}, allez à {line.Location}, prenez {line.Quantity}")">
             @if (isNext)
             {
-                @* h2 : le plan des titres reste h1 (client), h2, h3 (produit). *@
-                <h2 class="line-kicker">Prochaine ligne</h2>
+                @* h2 : le plan des titres reste h1 (client), h2, h3 (produit).
+                   Les capitales viennent du CSS (text-transform) : un lecteur
+                   d'écran lit les mots, et non lettre par lettre. *@
+                <h2 class="line-kicker">À faire maintenant</h2>
             }
             <div class="line-main">
                 <div class="line-figure">
-                    <span class="line-label">Emplacement</span>
+                    <span class="line-label">Allez à</span>
                     <span class="line-location">@line.Location</span>
                     @if (LocationWords(line.Location) is { } words)
                     {
@@ -438,14 +497,14 @@
                     }
                 </div>
                 <div class="line-figure line-figure-qty">
-                    <span class="line-label">À prendre</span>
+                    <span class="line-label">Prenez</span>
                     <span class="line-qty">@line.Quantity</span>
                 </div>
             </div>
             <div class="line-product">
                 <h3 class="line-product-name">@line.ProductName</h3>
-                <span class="line-meta">Réf. @line.Sku</span>
-                <span class="line-meta">En stock : @line.StockQty</span>
+                <span class="line-check">Vérifiez la référence sur l'étiquette : <strong>@line.Sku</strong></span>
+                <span class="line-meta">Stock actuel : @line.StockQty</span>
             </div>
             @if (errorLineId == line.Id)
             {
@@ -459,7 +518,7 @@
             }
             <button type="button" class="button @(isNext ? "button-wide" : "button-secondary line-button")"
                     disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
-                @(pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "Préparé")
+                @(pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "C'est pris")
             </button>
         </article>;
 
