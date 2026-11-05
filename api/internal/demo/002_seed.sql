@@ -1,5 +1,13 @@
--- Données de démonstration (voir docs/PLAN.md, section 3.4).
--- Exécuté une seule fois par l'image PostgreSQL, après 001_schema.sql.
+-- Données de démonstration (voir docs/PLAN.md, section 3.4 et étape 15).
+-- Seule source de ces données, utilisée à trois endroits :
+--   - l'image PostgreSQL l'exécute une seule fois, après 001_schema.sql
+--     (compose.yaml le monte dans /docker-entrypoint-initdb.d) ;
+--   - db/reset.sql l'inclut, pour remettre à zéro une base hors Docker ;
+--   - l'API l'embarque à la compilation (go:embed, demo.go) et le recharge
+--     pour POST /api/demo/reset. C'est pourquoi il est dans api/ : go:embed
+--     ne lit que les fichiers du dossier de son paquet.
+-- Du SQL standard seulement, sans commande propre à psql : l'API l'envoie
+-- tel quel à PostgreSQL.
 --
 -- Les ordres d'insertion sont volontairement mélangés : les produits ne
 -- suivent pas l'ordre des emplacements, et les dates de création ne suivent

@@ -21,5 +21,11 @@ func NewHandler(s *store.Store) http.Handler {
 	mux.HandleFunc("GET /api/pickers", h.listPickers)
 	mux.HandleFunc("POST /api/pickers", h.createPicker)
 	mux.HandleFunc("DELETE /api/pickers/{id}", h.deletePicker)
+	// Remise à zéro de la démo (étape 15) : la route n'existe que si
+	// DEMO_RESET_ENABLED vaut true. Sinon, le routeur répond 404, comme pour
+	// toute route inconnue.
+	if DemoResetEnabled() {
+		mux.HandleFunc("POST /api/demo/reset", h.resetDemo)
+	}
 	return mux
 }

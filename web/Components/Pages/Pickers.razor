@@ -4,26 +4,29 @@
 @inject ApiWakeUp ApiWakeUp
 @inject PickerState PickerState
 @inject NavigationManager Nav
+@inject IConfiguration Configuration
 @implements IDisposable
 
-@* Écran « Qui prépare ? » (docs/PLAN.md, étapes 7 bis et 13) : le préparateur
-   choisit son profil, crée le sien ou en supprime un. Un panneau centré, avec
-   trois affichages sur la même adresse : la grille des profils, le
-   formulaire « Nouveau profil » et la confirmation d'une suppression, qui la
-   remplacent dans le panneau. La grille a un mode gestion, où toucher une
-   carte propose de supprimer le profil au lieu de le choisir.
+@* Écran « Qui prépare ? » (docs/PLAN.md, étapes 7 bis, 13 et 15) : le
+   préparateur choisit son profil, crée le sien ou en supprime un. Un panneau
+   centré, avec quatre affichages sur la même adresse : la grille des
+   profils, le formulaire « Nouveau profil », la confirmation d'une
+   suppression et celle de la remise à zéro de la démo, qui la remplacent
+   dans le panneau. La grille a un mode gestion, où toucher une carte propose
+   de supprimer le profil au lieu de le choisir. Sous le panneau, à gauche,
+   la remise à zéro de la démo (étape 15).
 
    tabindex="-1" et @onkeydown : un clic dans la page y garde le focus, et la
    touche Échap, qui remonte jusqu'ici, quitte le mode gestion. *@
 
-<div class="page" tabindex="-1" @onkeydown="OnKeyDown">
+<div class="page picker-page" tabindex="-1" @onkeydown="OnKeyDown">
     <div class="panel">
         @* Message (étape 13) : succès d'une suppression, ou profil de cet
            onglet supprimé depuis un autre. Le conteneur reste toujours dans la
            page, vide au repos : un lecteur d'écran annonce le texte qui y
            apparaît, sans que le focus y aille. *@
         <div role="status" aria-live="polite">
-            @if (notice is not null)
+            @if (notice is not null && !noticeInCorner)
             {
                 if (noticeIsSuccess)
                 {
@@ -115,7 +118,7 @@
                            suppression : aria-label le dit, le badge rouge à la
                            croix le montre (décoratif). Hors mode gestion,
                            aria-label vaut null et Blazor ne l'écrit pas. *@
-                        <button type="button" class="picker-card @(managing ? "picker-card-managed" : null)"
+                        <button type="button" class="picker-card @(managing ? "picker-card-managed" : null)" @key="picker.Id"
                                 aria-label="@(managing ? $"Supprimer le profil {picker.Name}" : null)"
                                 @ref="cardButtons[picker.Id]" @onclick="() => CardClicked(picker)">
                             <span class="picker-avatar" aria-hidden="true">@picker.Initial</span>
@@ -185,6 +188,55 @@
             </form>
         }
     </div>
+
+    @if (ShowDemoReset)
+    {
+        @* Remise à zéro de la démo (étape 15) : un pied de page discret, en
+           bas à droite (Pickers.razor.css), pour ne pas concurrencer le choix
+           du profil. La confirmation et le message de succès s'affichent
+           dans ce coin, à la place de la zone : le panneau des profils ne
+           bouge pas. Masquée en mode gestion, et absente si
+           DEMO_RESET_ENABLED ne vaut pas true. *@
+        <div class="demo-reset">
+            @* Message de succès : role="status", sans focus. Le conteneur
+               reste dans la page, vide au repos, comme celui du panneau. *@
+            <div role="status" aria-live="polite">
+                @if (notice is not null && noticeInCorner)
+                {
+                    <p class="banner-success"><span aria-hidden="true">✓</span> @notice</p>
+                }
+            </div>
+            @if (confirmingReset)
+            {
+                @* Petit encadré compact : la question (qui reçoit le focus à
+                   l'ouverture), puis « Réinitialiser » et « Annuler ». *@
+                <div class="demo-reset-confirm">
+                    <p class="demo-reset-question" tabindex="-1" @ref="resetTitle">
+                        <strong>Réinitialiser la démo&nbsp;?</strong>
+                        <span>Les commandes, le stock et les profils reviennent à leur état de départ. Les profils créés seront supprimés.</span>
+                    </p>
+                    @if (resetError is not null)
+                    {
+                        <p class="field-error" role="alert">
+                            <span class="field-error-icon" aria-hidden="true">!</span>
+                            <span>@resetError</span>
+                        </p>
+                    }
+                    <div class="demo-reset-actions">
+                        <button type="button" class="button button-danger" disabled="@resetting" @onclick="ResetAsync">@(resetting ? "Réinitialisation..." : "Réinitialiser")</button>
+                        <button type="button" class="button button-secondary" disabled="@resetting" @onclick="CancelReset">Annuler</button>
+                    </div>
+                </div>
+            }
+            else
+            {
+                <div class="demo-reset-row">
+                    <p>Vous avez fini de tester ? Remettez la démo à son état de départ.</p>
+                    <button type="button" class="button button-secondary" @ref="resetButton" @onclick="AskReset">Réinitialiser la démo</button>
+                </div>
+            }
+        </div>
+    }
 </div>
 
 @code {
@@ -218,6 +270,21 @@
     // Heure d'ouverture de la confirmation : voir DeleteAsync.
     private DateTime confirmingSince;
 
+    // Confirmation de la remise à zéro de la démo (étape 15).
+    private bool confirmingReset;
+    private bool resetting;
+    private string? resetError;
+    // Heure d'ouverture de la confirmation : voir ResetAsync.
+    private DateTime resetSince;
+
+    // La zone « Réinitialiser la démo » : seulement si la route existe
+    // (DEMO_RESET_ENABLED=true, la même variable que l'API), une fois la
+    // grille des profils chargée, et hors du mode gestion, du formulaire et
+    // de la confirmation d'une suppression.
+    private bool ShowDemoReset =>
+        Configuration["DEMO_RESET_ENABLED"] == "true"
+        && pickers is not null && !managing && !adding && confirming is null;
+
     // Mode gestion (étape 13) : toucher une carte propose de supprimer le
     // profil, au lieu de le choisir.
     private bool managing;
@@ -231,6 +298,8 @@
     // dès l'action suivante.
     private string? notice;
     private bool noticeIsSuccess;
+    // Vrai pour le message de la remise à zéro, affiché dans son coin.
+    private bool noticeInCorner;
     private CancellationTokenSource? noticeTimer;
     private static readonly TimeSpan SuccessNoticeDuration = TimeSpan.FromSeconds(5);
 
@@ -242,13 +311,18 @@
     private ElementReference addButton;
     private ElementReference confirmTitle;
     private ElementReference manageButton;
+    private ElementReference resetTitle;
+    private ElementReference resetButton;
     // Carte de chaque profil, par identifiant : le focus y revient après
-    // « Annuler ».
+    // « Annuler ». Chaque carte a une clé (@key) : Blazor garde ainsi le même
+    // élément pour le même profil, même si la liste change.
     private readonly Dictionary<long, ElementReference> cardButtons = [];
     private bool focusNameInput;
     private bool focusAddButton;
     private bool focusConfirmTitle;
     private bool focusManageButton;
+    private bool focusResetTitle;
+    private bool focusResetButton;
     private long? focusCardOf;
 
     /// <summary>
@@ -278,7 +352,7 @@
         {
             return false;
         }
-        var exists = await api.PickerExistsAsync(picker.Id, onStarting);
+        var exists = await api.PickerExistsAsync(picker, onStarting);
         if (!exists.IsSuccess || exists.Value)
         {
             return false;
@@ -318,6 +392,17 @@
             {
                 focusNameInput = false;
                 await nameInput.FocusAsync();
+            }
+            else if (focusResetTitle)
+            {
+                focusResetTitle = false;
+                await resetTitle.FocusAsync();
+            }
+            else if (focusResetButton && resetButton.Context is not null)
+            {
+                // Context est null tant que le bouton n'a jamais été affiché.
+                focusResetButton = false;
+                await resetButton.FocusAsync();
             }
             else if (focusConfirmTitle)
             {
@@ -420,6 +505,7 @@
     private void StartAdding()
     {
         ClearNotice();
+        CloseResetConfirmation();
         adding = true;
         addingSince = DateTime.UtcNow;
         newName = "";
@@ -494,6 +580,9 @@
         managing = !managing;
         managingToggledAt = DateTime.UtcNow;
         ClearNotice();
+        // La zone de remise à zéro est masquée en mode gestion : sa
+        // confirmation éventuelle est abandonnée.
+        CloseResetConfirmation();
     }
 
     // La touche Échap quitte le mode gestion, quand la grille est affichée.
@@ -554,14 +643,89 @@
         deleteError = null;
     }
 
-    // Affiche le message en haut du panneau. Un succès s'efface seul au bout
-    // de SuccessNoticeDuration ; une information reste jusqu'à l'action
+    // « Réinitialiser la démo » : ouvre la confirmation dans le panneau.
+    private void AskReset()
+    {
+        confirmingReset = true;
+        resetSince = DateTime.UtcNow;
+        resetError = null;
+        ClearNotice();
+        focusResetTitle = true;
+    }
+
+    // Retour à la grille sans rien changer, avec le focus sur « Réinitialiser
+    // la démo ». Même garde que CancelDelete.
+    private void CancelReset()
+    {
+        if (resetting || DateTime.UtcNow - resetSince < DoubleTapDelay)
+        {
+            return;
+        }
+        confirmingReset = false;
+        resetError = null;
+        focusResetButton = true;
+    }
+
+    // Ferme la confirmation de la remise à zéro sans rien faire, quand la
+    // zone disparaît (mode gestion, formulaire « Nouveau profil »). Pendant
+    // l'appel, ResetAsync la ferme lui-même.
+    private void CloseResetConfirmation()
+    {
+        if (!resetting)
+        {
+            confirmingReset = false;
+            resetError = null;
+        }
+    }
+
+    private async Task ResetAsync()
+    {
+        // Même protection contre le double appui que DeleteAsync : un appui
+        // dans la demi-seconde qui suit l'ouverture est ignoré, comme un
+        // second appui pendant l'appel.
+        if (resetting || !confirmingReset || DateTime.UtcNow - resetSince < DoubleTapDelay)
+        {
+            return;
+        }
+        resetting = true;
+        resetError = null;
+        var result = await Api.ResetDemoAsync();
+        resetting = false;
+        if (!result.IsSuccess)
+        {
+            // L'API démarre : la remise à zéro n'est pas renvoyée, mais le
+            // navigateur réveille l'API. Recommencer est sans risque : deux
+            // remises à zéro donnent le même résultat.
+            if (result.Error.Kind == ApiErrorKind.Starting)
+            {
+                await ApiWakeUp.WakeUpAsync();
+            }
+            resetError = $"La démo n'a pas pu être remise à zéro. {result.Error.UserMessage}";
+            return;
+        }
+        confirmingReset = false;
+        // La liste est relue : Claire, Romain et Virginie, sans les profils
+        // créés.
+        await LoadAsync();
+        // Le message s'affiche dans le coin de la zone, pas en haut du
+        // panneau : rien ne décale les profils.
+        ShowNotice("La démo est remise à zéro.", success: true, inCorner: true);
+        // Le message est annoncé sans focus (role="status") ; le focus revient
+        // sur « Réinitialiser la démo ». Levé après l'appel, comme dans
+        // DeleteAsync.
+        focusResetButton = true;
+    }
+
+    // Affiche le message en haut du panneau, ou dans le coin de la remise à
+    // zéro (inCorner). Un succès s'efface seul au bout de
+    // SuccessNoticeDuration ; une information reste jusqu'à l'action
     // suivante, le temps de comprendre pourquoi on est revenu ici.
-    private void ShowNotice(string message, bool success)
+    private void ShowNotice(string message, bool success, bool inCorner = false)
     {
         ClearNotice();
         notice = message;
         noticeIsSuccess = success;
+        noticeInCorner = inCorner;
         if (success)
         {
             noticeTimer = new CancellationTokenSource();

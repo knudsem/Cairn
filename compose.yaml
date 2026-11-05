@@ -27,8 +27,12 @@ services:
       # "docker compose down -v" supprime ce volume : la base repart de zéro.
       - db-data:/var/lib/postgresql
       # Scripts SQL exécutés par l'image dans l'ordre alphabétique, une seule
-      # fois, quand le volume est vide. Montés en lecture seule (ro).
-      - ./db/init:/docker-entrypoint-initdb.d:ro
+      # fois, quand le volume est vide. Montés en lecture seule (ro). Les
+      # données de démonstration sont dans api/ (étape 15) : l'API les
+      # embarque (go:embed) pour sa remise à zéro. Monté sous le même nom
+      # qu'avant, 002_seed.sql, après le schéma.
+      - ./db/init/001_schema.sql:/docker-entrypoint-initdb.d/001_schema.sql:ro
+      - ./api/internal/demo/002_seed.sql:/docker-entrypoint-initdb.d/002_seed.sql:ro
     healthcheck:
       # « Prête » seulement après l'initialisation : pendant celle-ci, le
       # serveur temporaire n'écoute pas sur le réseau, et -h 127.0.0.1 oblige
@@ -72,6 +76,9 @@ services:
     build: ./api
     environment:
       DATABASE_URL: postgres://cairn:cairn@db:5432/cairn?sslmode=disable
+      # Remise à zéro de la démo (étape 15) : POST /api/demo/reset n'existe
+      # que si cette variable vaut true.
+      DEMO_RESET_ENABLED: "true"
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -94,6 +101,9 @@ services:
       # Pas de réveil de l'API par le navigateur (étape 11 bis) : il ne peut
       # pas joindre api:8080, nom connu seulement à l'intérieur de Docker.
       ApiWakeUpFromBrowser: "false"
+      # Même variable que l'API : « Qui prépare ? » n'affiche le bouton
+      # « Réinitialiser la démo » que si la route existe (étape 15).
+      DEMO_RESET_ENABLED: "true"
     ports:
       # Le conteneur écoute sur 8080, publié sur le port 8081 du poste.
       - "127.0.0.1:8081:8080"

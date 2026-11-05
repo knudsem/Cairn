@@ -176,6 +176,98 @@
     margin-top: 1.5rem;
 }
 
+/* Remise à zéro de la démo (étape 15) : un pied de page discret, en bas à
+   droite. Texte petit et gris ; le bouton secondaire garde la hauteur des
+   boutons (64 px au toucher, 44 px à la souris). Sur téléphone, sous le
+   panneau, aligné à droite ; la phrase peut passer au-dessus du bouton. */
+.demo-reset {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    margin-top: 1.5rem;
+    color: var(--color-muted);
+    font-size: var(--font-size-small);
+    text-align: right;
+}
+
+.demo-reset-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.625rem 1rem;
+}
+
+.demo-reset-row p {
+    margin: 0;
+}
+
+/* Message de succès dans le coin, au-dessus du bouton. */
+.demo-reset .banner-success {
+    margin: 0 0 0.75rem;
+    text-align: left;
+}
+
+/* Confirmation : un petit encadré compact, dans le même coin. */
+.demo-reset-confirm {
+    max-width: 28rem;
+    padding: 1rem 1.25rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    background: var(--color-white);
+    box-shadow: var(--shadow-panel);
+    color: var(--color-navy);
+    text-align: left;
+}
+
+.demo-reset-question {
+    margin: 0 0 0.875rem;
+}
+
+.demo-reset-question:focus {
+    outline: none;
+}
+
+.demo-reset-question strong {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: var(--font-size-base);
+}
+
+.demo-reset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.625rem;
+}
+
+.demo-reset-confirm .field-error {
+    margin: 0 0 0.875rem;
+}
+
+/* Ordinateur et tablette : la page occupe toute la hauteur sous la barre du
+   haut, en colonne. Le panneau reste en haut ; la zone est poussée en bas
+   (margin-top: auto), par la mise en page et non par-dessus le contenu. Sur
+   un écran trop bas, il n'y a pas de place libre : elle se range sous le
+   panneau, sans jamais le recouvrir. Elle grandit vers le haut
+   (confirmation, message) sans déplacer le panneau. */
+@media (min-width: 40rem) {
+    .picker-page {
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100dvh - var(--header-height));
+    }
+
+    .demo-reset {
+        margin-top: auto;
+        padding-top: 1.5rem;
+    }
+
+    .demo-reset-row {
+        flex-wrap: nowrap;
+    }
+}
+
 /* Confirmation d'une suppression : la pastille du profil visé, centrée
    au-dessus de la question. */
 .picker-confirm-avatar {

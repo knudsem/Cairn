@@ -48,3 +48,9 @@ services:
       # l'API dans le conteneur et le réveil de la base Neon.
       - key: ApiTimeoutSeconds
         value: "30"
+      # Remise à zéro de la démo par les testeurs (étape 15). Les deux
+      # programmes du conteneur la lisent : l'API déclare POST
+      # /api/demo/reset, l'interface affiche le bouton « Réinitialiser la
+      # démo ». Absente ou différente de true : ni route, ni bouton.
+      - key: DEMO_RESET_ENABLED
+        value: "true"

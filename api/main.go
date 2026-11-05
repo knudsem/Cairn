@@ -92,6 +92,9 @@ func run() error {
 	}
 	db := pool.Config().ConnConfig
 	log.Printf("API Cairn à l'écoute sur %s (base %s:%d/%s)", addr, db.Host, db.Port, db.Database)
+	if httpapi.DemoResetEnabled() {
+		log.Print("remise à zéro de la démo activée : POST /api/demo/reset (DEMO_RESET_ENABLED=true)")
+	}
 
 	// Le serveur tourne dans une goroutine, une fonction exécutée en parallèle.
 	// run attend la première de ces deux choses : une erreur du serveur, ou

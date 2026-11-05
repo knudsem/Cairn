@@ -65,18 +65,31 @@ public class CairnApiClient(HttpClient http, ILogger<CairnApiClient> logger)
         SendAsync<NoContent>(HttpMethod.Delete, $"api/pickers/{id}", null, HttpStatusCode.NoContent);
 
     /// <summary>
-    /// Vrai si le profil id existe encore, d'après GET /api/pickers (20 profils
+    /// Vrai si le profil existe encore, d'après GET /api/pickers (20 profils
     /// au plus) : un profil choisi dans cet onglet a pu être supprimé depuis un
-    /// autre (étape 13). Lecture réessayée pendant le démarrage de l'API, comme
-    /// les autres ; en cas d'échec, l'erreur de la lecture.
+    /// autre (étape 13), ou effacé par la remise à zéro de la démo (étape 15).
+    /// L'identifiant et le nom doivent correspondre : après une remise à zéro,
+    /// les identifiants repartent de 1, et un nouveau profil peut reprendre
+    /// celui d'un profil disparu. Lecture réessayée pendant le démarrage de
+    /// l'API, comme les autres ; en cas d'échec, l'erreur de la lecture.
     /// </summary>
-    public async Task<ApiResult<bool>> PickerExistsAsync(long id, Func<Task>? onStarting = null)
+    public async Task<ApiResult<bool>> PickerExistsAsync(Picker picker, Func<Task>? onStarting = null)
     {
         var result = await GetPickersAsync(onStarting);
         return result.IsSuccess
-            ? ApiResult<bool>.Success(result.Value.Any(picker => picker.Id == id))
+            ? ApiResult<bool>.Success(result.Value.Any(p => p.Id == picker.Id && p.Name == picker.Name))
             : ApiResult<bool>.Failure(result.Error);
     }
+
+    /// <summary>
+    /// POST /api/demo/reset : remet les commandes, le stock et les profils à
+    /// leur état de départ (étape 15). Succès : 204, sans corps. La route
+    /// n'existe que si l'API a DEMO_RESET_ENABLED=true ; « Qui prépare ? »
+    /// n'affiche le bouton qu'avec la même variable. Un seul envoi, comme
+    /// toute écriture ; la recommencer est sans risque (même résultat).
+    /// </summary>
+    public Task<ApiResult<NoContent>> ResetDemoAsync() =>
+        SendAsync<NoContent>(HttpMethod.Post, "api/demo/reset", null, HttpStatusCode.NoContent);
 
     /// <summary>GET /api/orders : les commandes, la plus ancienne en premier.</summary>
     public Task<ApiResult<IReadOnlyList<OrderSummary>>> GetOrdersAsync(Func<Task>? onStarting = null) =>

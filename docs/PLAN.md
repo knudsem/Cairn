@@ -75,13 +75,15 @@ Cairn/
   db/
     init/
       001_schema.sql           tables et contraintes
-      002_seed.sql             données de démonstration
     reset.sql                  remise à zéro d'une base hors Docker (Neon, étape 11)
   api/                         module Go
     go.mod, go.sum
     main.go                    démarrage : configuration, connexion, serveur HTTP
     Dockerfile
     internal/
+      demo/
+        002_seed.sql           données de démonstration (dans db/init/ jusqu'à l'étape 15)
+        demo.go                le fichier embarqué dans l'exécutable (go:embed)
       store/
         store.go               types (Order, Line, Product, Picker) et erreurs métier
         queries.go             lectures : liste, détail, produits
@@ -133,7 +135,7 @@ Cairn/
 | Choix | Justification |
 |---|---|
 | Un dossier par conteneur (`db`, `api`, `web`) | La structure du dépôt reflète l'architecture. |
-| Scripts `db/init/` exécutés par l'image officielle PostgreSQL | Mécanisme documenté de l'image, sans code à écrire. Limite : les scripts ne s'exécutent que sur un volume vide ; `docker compose down -v` repart de zéro. Il n'y a pas d'outil de migration, ce qui est assumé pour un prototype ; un projet durable utiliserait goose, golang-migrate ou l'outil déjà en place. Les deux scripts restent du SQL standard, sans commande propre à psql ni à Docker : `db/reset.sql` les rejoue sur la base en ligne (étape 11). |
+| Scripts `db/init/` exécutés par l'image officielle PostgreSQL | Mécanisme documenté de l'image, sans code à écrire. Limite : les scripts ne s'exécutent que sur un volume vide ; `docker compose down -v` repart de zéro. Il n'y a pas d'outil de migration, ce qui est assumé pour un prototype ; un projet durable utiliserait goose, golang-migrate ou l'outil déjà en place. Les deux scripts restent du SQL standard, sans commande propre à psql ni à Docker : `db/reset.sql` les rejoue sur la base en ligne (étape 11). Depuis l'étape 15, `002_seed.sql` est dans `api/internal/demo/` (l'API l'embarque pour sa remise à zéro), et `compose.yaml` le monte au même endroit qu'avant dans le conteneur. |
 | `main.go` à la racine du module Go et paquets dans `internal/` | Disposition officielle « commande avec paquets annexes » ([go.dev/doc/modules/layout](https://go.dev/doc/modules/layout)). Le compilateur interdit d'importer `internal/` depuis l'extérieur du module. |
 | Deux paquets : `store` et `httpapi` | `store` parle SQL et ignore HTTP ; `httpapi` parle HTTP et ignore SQL. Les erreurs métier (`ErrInsufficientStock`, etc.) font le lien. Le nom `http` est évité car il entrerait en conflit avec `net/http`. |
 | Pas de couche « service » ni « repository » | La règle métier est une transaction SQL. Une couche qui ne ferait que déléguer ajouterait des fichiers sans rien protéger. Elle sera extraite si la logique grandit. |
@@ -339,6 +341,7 @@ L'historique s'alimente par un `INSERT` dans la transaction de validation. L'ale
 | `GET` | `/api/pickers` | 200 : profils triés par nom | |
 | `POST` | `/api/pickers` | 201 : profil créé | 400, 409 |
 | `DELETE` | `/api/pickers/{id}` | 204 : profil supprimé, sans corps (étape 13) | 400 si l'identifiant n'est pas un nombre, 404 |
+| `POST` | `/api/demo/reset` | 204 : données de démonstration remises à leur état de départ, sans corps (étape 15) | 404 si `DEMO_RESET_ENABLED` ne vaut pas `true` (la route n'existe pas), 500 |
 
 ### 4.2 Format des réponses
 
@@ -435,7 +438,7 @@ Les commandes sont données pour PowerShell. La plupart sont identiques sous bas
 
 ### Étape 1 : base de données dans Docker (1 h)
 
-- **Fichiers :** `compose.yaml` (service `db`), `db/init/001_schema.sql`, `db/init/002_seed.sql`.
+- **Fichiers :** `compose.yaml` (service `db`), `db/init/001_schema.sql`, `db/init/002_seed.sql` (déplacé dans `api/internal/demo/` à l'étape 15).
 - **Points de vigilance :**
   - avec PostgreSQL 18, le volume se monte sur `/var/lib/postgresql` ; l'ancien chemin `/var/lib/postgresql/data` empêche le conteneur de démarrer ;
   - les scripts d'initialisation ne s'exécutent que sur un volume vide ;
@@ -743,7 +746,7 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 - `render.yaml` (Blueprint), à la racine (un seul service depuis l'étape 11 ter) : deux services `type: web`, `runtime: docker`, `plan: free`, `region: frankfurt`, avec `dockerfilePath` et `dockerContext` (`./api` et `./web`), sans `rootDir` (la documentation se contredit sur son effet), et un `buildFilter` par dossier pour ne reconstruire que le service modifié. Pas de `healthCheckPath` : la sonde TCP par défaut suffit, alors qu'un contrôle sur `/health` interrogerait Neon toutes les quelques secondes. Variables :
   - `cairn-knudsem-api` : `PORT=8080` (Render attend 10000 par défaut) ; `DATABASE_URL` avec `sync: false`.
   - `cairn-knudsem-web` : `PORT=8080` ; `ApiBaseUrl`, l'URL publique de l'API, avec `sync: false` : saisie à la création du Blueprint (`https://cairn-knudsem-api.onrender.com/`), puis corrigée dans le tableau de bord si Render a donné une autre adresse au service. `fromService` ne fournit que l'adresse privée, inutilisable par un service gratuit ; `RENDER_EXTERNAL_URL` n'existe qu'à l'exécution, dans le service lui-même. `ApiTimeoutSeconds=90`.
-- `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `init/002_seed.sql` (commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
+- `db/reset.sql` : supprime les quatre tables (profils compris), `orders` en tête pour la même raison que le `TRUNCATE` de la section 3.4, puis rejoue `init/001_schema.sql` et `002_seed.sql` (dans `api/internal/demo/` depuis l'étape 15 ; commande `\ir` de psql), le tout en une seule transaction (`psql -1`). Il sert à initialiser la base Neon et à remettre les données de démonstration à zéro, avec des dates de création recalculées et les trois profils d'origine.
 - `web/Program.cs` : délai d'appel à l'API configurable (`ApiTimeoutSeconds`, 5 s par défaut, 90 s sur Render, plus que le réveil de l'API) ; appel à `/health` au démarrage de l'interface, pour réveiller l'API en même temps qu'elle. Dans `Models.cs`, un 503 sans le JSON de l'API (page d'attente de l'hébergeur) donne « Le serveur démarre. Réessayez dans une minute. ». Ce réveil ne fonctionne pas sur Render : remplacé à l'étape 11 bis.
 
 **Noms des services :** `cairn-knudsem-api` et `cairn-knudsem-web`. Le nom donne l'adresse (`https://<nom>.onrender.com`), et `cairn-api` est déjà pris par le service d'un tiers (relevé par la relecture le 4 novembre) : avec cette adresse, l'interface aurait envoyé ses requêtes, noms des préparateurs compris, à un inconnu. Avant de créer le Blueprint, `curl.exe -sI https://cairn-knudsem-api.onrender.com/` doit répondre `x-render-routing: no-server` (nom libre).
@@ -756,10 +759,12 @@ Ajoutée le 4 novembre, entre l'étape 10 et le déploiement (section 6, point d
 
 ```powershell
 $env:DEMO_DATABASE_URL = "<chaîne directe Neon>"
-docker run --rm -v "${PWD}/db:/db:ro" postgres:18 psql $env:DEMO_DATABASE_URL -v ON_ERROR_STOP=1 -1 -f /db/reset.sql
+docker run --rm -v "${PWD}:/cairn:ro" postgres:18 psql $env:DEMO_DATABASE_URL -v ON_ERROR_STOP=1 -1 -f /cairn/db/reset.sql
 ```
 
-Pas de route d'administration dans l'API pour cela : elle serait publique.
+Tout le dépôt est monté, en lecture seule : depuis l'étape 15, les données de démonstration sont dans `api/internal/demo/` (commande d'origine : `-v "${PWD}/db:/db:ro"` et `-f /db/reset.sql`).
+
+Pas de route d'administration dans l'API pour cela : elle serait publique. **Revu à l'étape 15** : à la demande, `POST /api/demo/reset` permet aux testeurs de remettre la démo à zéro eux-mêmes. Elle est publique, comme la création et la suppression des profils, mais n'existe que si `DEMO_RESET_ENABLED` vaut `true`.
 
 **Limiter l'effet de la mise en veille :**
 
@@ -886,7 +891,19 @@ Le préparateur porte des cartons toute la journée et n'a pas le temps de lire 
 - « Retour aux commandes » est masqué en deux panneaux (à partir de 1024 px, comme « ← Commandes ») : la liste est déjà à gauche. Il reste sur une seule colonne (téléphone, tablette en portrait).
 - Messages d'erreur : ceux de l'API qui parlent de « ligne » sont remplacés dans l'interface, d'après le code d'erreur : `deja_preparee` donne « Ce produit a déjà été pris. », `ligne_introuvable` « Ce produit n'est plus dans la commande. ». Le message du stock insuffisant est repris tel quel.
 - Stock insuffisant : réessayer donnera le même refus tant que personne n'a réapprovisionné. Le message se termine donc par « Prévenez votre responsable. », et « Réessayer » passe en bouton secondaire. Rien d'autre ne change : les autres produits de la commande restent à prendre, chacun avec son bouton.
-- Données de démonstration (`db/init/002_seed.sql`, inchangé) : CMD-0004 ne peut jamais être terminée (DEV-48 : 5 demandés, 2 en stock, refus reproductible voulu) ; CMD-0002 et CMD-0003 demandent chacune 4 BUL-50 pour un stock de 5 : une seule des deux peut être terminée, la première servie (démonstration de concurrence voulue). « Toutes les commandes sont prêtes. Bravo ! » n'apparaît donc pas avec les données de démonstration.
+- Données de démonstration (`002_seed.sql`, inchangé, dans `api/internal/demo/` depuis l'étape 15) : CMD-0004 ne peut jamais être terminée (DEV-48 : 5 demandés, 2 en stock, refus reproductible voulu) ; CMD-0002 et CMD-0003 demandent chacune 4 BUL-50 pour un stock de 5 : une seule des deux peut être terminée, la première servie (démonstration de concurrence voulue). « Toutes les commandes sont prêtes. Bravo ! » n'apparaît donc pas avec les données de démonstration.
+
+### Étape 15 : un bouton pour réinitialiser la démo
+
+Les testeurs remettent la démo à zéro eux-mêmes, depuis « Qui prépare ? », sans commande.
+
+- **API :** `POST /api/demo/reset` (`store.ResetDemo`), dans une seule transaction : `TRUNCATE orders, order_lines, products, pickers RESTART IDENTITY` (le même ordre que la section 3.4), puis les données de démonstration. Le schéma ne change pas, sans `DROP TABLE`. Réponse 204 sans corps ; une panne donne 500 `erreur_interne`, et `Rollback` annule tout. Deux remises à zéro de suite donnent le même résultat : recommencer après un échec est sans risque.
+- **Une seule source :** les données rechargées sont celles de `002_seed.sql`, sans copie dans le code Go. `go:embed` ne lit que les fichiers du dossier de son paquet, sans `..` : le fichier a donc quitté `db/init/` pour `api/internal/demo/`, et l'exécutable l'embarque (`demo.Seed`). `compose.yaml` le monte au même endroit qu'avant dans le conteneur de la base (`/docker-entrypoint-initdb.d/002_seed.sql`), `db/reset.sql` l'inclut par son nouveau chemin (la commande monte tout le dépôt), et `render/Dockerfile` ne change pas : il copie déjà `api/`. Écarté : lire le fichier à l'exécution par une variable d'environnement, qui demanderait un montage dans Compose, une copie dans l'image Render et une erreur possible au moment de la remise à zéro.
+- **Activation :** la route n'existe que si `DEMO_RESET_ENABLED` vaut exactement `true` ; sinon, le routeur répond 404. Activée dans `compose.yaml` (services `api` et `web`) et `render.yaml`. L'interface lit la même variable : sans elle, pas de bouton, plutôt qu'un bouton qui échouerait.
+- **Interface :** un pied de page discret, en bas à droite de « Qui prépare ? » : « Vous avez fini de tester ? Remettez la démo à son état de départ. » en gris, à gauche d'un bouton secondaire « Réinitialiser la démo ». Sur ordinateur et tablette, la page occupe toute la hauteur de l'écran, en colonne, et la zone est poussée en bas par la mise en page (`margin-top: auto`), jamais par-dessus le contenu : sur un écran trop bas, elle se range sous le panneau. Sur téléphone, elle est sous le panneau, alignée à droite. Masquée en mode gestion. La confirmation s'affiche dans le même coin, à la place de la zone, dans un petit encadré : « Réinitialiser la démo ? Les commandes, le stock et les profils reviennent à leur état de départ. Les profils créés seront supprimés. », avec « Réinitialiser » et « Annuler », et la même garde contre le double appui que la suppression d'un profil. Après la remise à zéro, la liste est relue, et « ✓ La démo est remise à zéro. » s'affiche dans ce coin, comme à l'étape 13 (`role="status"`, sans focus ni bordure) ; le focus revient sur « Réinitialiser la démo ». Rien ne décale le panneau des profils. En cas d'erreur : « La démo n'a pas pu être remise à zéro. » suivi du message habituel.
+- **Autres onglets :** un onglet dont le profil n'existe plus revient à « Qui prépare ? » à sa prochaine action, avec le message de l'étape 13. La vérification compare maintenant l'identifiant **et** le nom : après une remise à zéro, les identifiants repartent de 1, et un nouveau profil pourrait reprendre l'identifiant d'un profil disparu. Claire, Romain et Virginie retrouvent les mêmes identifiants : leurs onglets restent valables.
+- **Limite connue :** la route est publique. N'importe quel visiteur du lien peut remettre la démo à zéro, comme il peut créer ou supprimer des profils (pas d'authentification, SCOPE.md).
+- **Tests Go :** état de départ rétabli après une ligne validée, du stock consommé, un profil créé et un profil supprimé ; deux remises à zéro de suite ; interruption pendant le chargement sans effet ; 204, 404 pour toute autre valeur que `true`, et 500 en cas de panne.
 
 ---
 
