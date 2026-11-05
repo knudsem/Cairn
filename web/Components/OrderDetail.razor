@@ -210,6 +210,10 @@
     private long? errorLineId;
     private string? errorTitle;
     private string? errorDetail;
+    // Vrai si l'erreur affichée est un stock insuffisant : réessayer donnera
+    // le même refus tant que personne n'a réapprovisionné, et « Réessayer »
+    // passe en bouton secondaire (étape 14).
+    private bool errorIsStock;
 
     // Garde contre le double appui : avec des gants, le second appui d'un
     // double appui tomberait sur le bouton « C'est pris » de la ligne suivante,
@@ -433,7 +437,8 @@
         if (error.Code == "stock_insuffisant")
         {
             errorTitle = error.Message;
-            errorDetail = "Rien n'est enregistré et le stock n'a pas changé.";
+            errorDetail = "Rien n'est enregistré et le stock n'a pas changé. Prévenez votre responsable.";
+            errorIsStock = true;
         }
         else if (error.Code == "deja_preparee")
         {
@@ -516,7 +521,10 @@
                     </span>
                 </div>
             }
-            <button type="button" class="button @(isNext ? "button-wide" : "button-secondary line-button")"
+            @* Bouton principal pour la carte « À faire maintenant », sauf après
+               un stock insuffisant : « Réessayer » y devient secondaire. Les
+               autres produits restent à prendre, chacun avec son bouton. *@
+            <button type="button" class="button @(isNext ? "button-wide" : "line-button") @(isNext && !(errorIsStock && errorLineId == line.Id) ? null : "button-secondary")"
                     disabled="@(pickingLineId is not null)" @onclick="() => PickAsync(line)">
                 @(pickingLineId == line.Id ? "Validation..." : errorLineId == line.Id ? "Réessayer" : "C'est pris")
             </button>
@@ -546,5 +554,6 @@
         errorLineId = null;
         errorTitle = null;
         errorDetail = null;
+        errorIsStock = false;
     }
 }
